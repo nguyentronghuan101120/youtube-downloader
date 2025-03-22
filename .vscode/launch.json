@@ -27,9 +27,9 @@
             "request": "launch",
             "program": "${workspaceFolder}/assets/excutable_for_app.py",
             "args": [
-                "https://www.youtube.com/watch?v=mBRbVdSou0Q&list=PLmH_0jAzY3ViW8AggBVyw3wF3X387GABH&index=1",
+                "https://www.youtube.com/watch?v=H58vbez_m4E",
                 "--format=audio",
-                "--quality=best",
+                "--audio-format=mp3",
                 // "--output-dir=DEFAULT_OUTPUT_DIR"
             ],
             "console": "integratedTerminal"
