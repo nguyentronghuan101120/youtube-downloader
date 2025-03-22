@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:youtube_downloader_flutter/utils/download_config.dart';
 import 'package:youtube_downloader_flutter/utils/log_model.dart';
+import 'package:youtube_downloader_flutter/utils/video_info_model.dart';
 
 class DownloadController extends ChangeNotifier {
   final List<LogModel> processLogs = [];
@@ -13,12 +15,17 @@ class DownloadController extends ChangeNotifier {
   String? _downloadedFilePath;
   Process? _process;
   late String _scriptPath;
+  VideoInfoModel? _videoInfo;
+  String? _outputDir; // Thêm biến để lưu trữ thư mục đầu ra
 
   bool get isDownloading => _isDownloading;
   String? get downloadedFilePath => _downloadedFilePath;
+  VideoInfoModel? get videoInfo => _videoInfo;
+  String? get outputDir => _outputDir; // Getter để truy cập _outputDir
 
   DownloadController() {
     _initializeScript();
+    _setDefaultDownloadDirectory(); // Gọi hàm set mặc định khi khởi tạo
   }
 
   Future<void> _initializeScript() async {
@@ -32,7 +39,6 @@ class DownloadController extends ChangeNotifier {
     final byteData = await rootBundle.load('assets/excutable_for_app.py');
     final dir = await getApplicationDocumentsDirectory();
     final file = File('${dir.path}/excutable_for_app.py');
-    // Ghi đè file mỗi lần để đảm bảo dùng script mới nhất
     await file.writeAsBytes(byteData.buffer.asUint8List(), flush: true);
     return file.path;
   }
@@ -41,15 +47,49 @@ class DownloadController extends ChangeNotifier {
     await Process.run('chmod', ['+x', path]);
   }
 
+  // Chuyển logic setDefaultDownloadDirectory vào controller
+  Future<void> _setDefaultDownloadDirectory() async {
+    try {
+      Directory? downloadsDir = await getDownloadsDirectory();
+      if (downloadsDir != null) {
+        _outputDir = "${downloadsDir.path}/youtube-downloader";
+      } else {
+        final dir = await getExternalStorageDirectory();
+        if (dir != null) {
+          _outputDir = "${dir.path}/youtube-downloader";
+        }
+      }
+    } catch (e) {
+      _outputDir = null; // Let user pick manually if this fails
+      _logMessage('Error setting default directory: $e', LogType.error);
+    }
+    notifyListeners(); // Thông báo khi _outputDir thay đổi
+  }
+
+  // Hàm để chọn thư mục đầu ra
+  Future<void> pickOutputDirectory() async {
+    String? selectedDir = await FilePicker.platform.getDirectoryPath();
+    if (selectedDir != null) {
+      _outputDir = selectedDir;
+      notifyListeners(); // Cập nhật UI khi thư mục thay đổi
+    }
+  }
+
   Future<void> youtubeDownloader(
     String youtubeUrl,
     DownloadType downloadType,
     AudioFormat audioFormat,
     VideoQuality videoQuality,
-    String outputDir,
+    String? outputDir, // Tham số outputDir có thể null
   ) async {
     if (!_isValidUrl(youtubeUrl)) {
       _logMessage('Invalid YouTube URL', LogType.error);
+      notifyListeners();
+      return;
+    }
+
+    if (outputDir == null && _outputDir == null) {
+      _logMessage('No output directory selected', LogType.error);
       notifyListeners();
       return;
     }
@@ -58,12 +98,13 @@ class DownloadController extends ChangeNotifier {
     processLogs.clear();
     _downloadedFilePath = null;
     _process = null;
+    _videoInfo = null;
     notifyListeners();
 
     _logMessage("Preparing to download...");
     try {
-      final args = await _buildProcessArgs(
-          youtubeUrl, downloadType, audioFormat, videoQuality, outputDir);
+      final args = await _buildProcessArgs(youtubeUrl, downloadType,
+          audioFormat, videoQuality, outputDir ?? _outputDir!);
       _process = await Process.start('python', [_scriptPath, ...args]);
       _listenToProcessOutput(_process!);
 
@@ -123,10 +164,21 @@ class DownloadController extends ChangeNotifier {
   }
 
   void _listenToProcessOutput(Process process) {
-    process.stdout.transform(utf8.decoder).listen((data) => _logMessage(data));
-    process.stderr
-        .transform(utf8.decoder)
-        .listen((data) => _logMessage(data, LogType.error));
+    process.stdout.transform(utf8.decoder).listen((data) {
+      if (data.contains("START_INFO:")) {
+        final start = data.indexOf("START_INFO:") + "START_INFO:".length;
+        final end = data.indexOf(":END_INFO");
+        final jsonStr = data.substring(start, end).trim();
+        final jsonData = jsonDecode(jsonStr);
+        _videoInfo = VideoInfoModel.fromJson(jsonData);
+        notifyListeners();
+      } else {
+        _logMessage(data);
+      }
+    });
+    process.stderr.transform(utf8.decoder).listen((data) {
+      _logMessage(data, LogType.error);
+    });
   }
 
   Future<String?> _getOutputPathFromLogs() async {

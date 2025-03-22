@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import json
 import os
 import yt_dlp
 import argparse
@@ -9,15 +10,20 @@ from yt_dlp.utils import sanitize_filename
 from urllib.parse import urlparse, parse_qs
 
 # Configure logging with consistent levels
-logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
+import sys
+
+def log_info(message):
+    sys.stdout.write(f"{message}\n")
+    sys.stdout.flush()
 
 # Default output directory
 DEFAULT_OUTPUT_DIR = os.path.expanduser("~/Downloads/youtube-downloader")
 
 class VideoDownloadException(Exception):
     """Custom exception for video download errors."""
-    pass
+    def __init__(self, message):
+        log_info(f"VideoDownloadException: {message}")
+        super().__init__(message)
 
 def extract_info(url, extract_flat=False):
     """Extract metadata from a URL without downloading."""
@@ -28,27 +34,34 @@ def extract_info(url, extract_flat=False):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             return ydl.extract_info(url, download=False)
     except yt_dlp.utils.ExtractorError as e:
-        logger.error(f"Failed to extract info from {url}: {e}")
+        log_info(f"Failed to extract info from {url}: {e}")
         raise VideoDownloadException(f"Cannot extract information from {url}")
 
 def get_video_info(video_url):
     """Determine if URL is a playlist or single video and return appropriate info."""
-    logger.info(f"Fetching info for URL: {video_url}")
+    log_info(f"Fetching info for URL: {video_url}")
     parsed_url = urlparse(video_url)
     query_params = parse_qs(parsed_url.query)
     playlist_id = query_params.get('list', [None])[0]
 
-    if playlist_id:
+    if (playlist_id):
         playlist_url = f"https://www.youtube.com/playlist?list={playlist_id}"
         info = extract_info(playlist_url, extract_flat=True)
         playlist_videos = [{'title': entry.get('title', 'Untitled'), 'url': entry['url']} 
                            for entry in info['entries'] if 'url' in entry]
-        logger.info(f"Detected playlist '{info.get('title', 'Unnamed playlist')}' with {len(playlist_videos)} videos")
+        log_info(f"Detected playlist '{info.get('title', 'Unnamed playlist')}' with {len(playlist_videos)} videos")
         return playlist_videos
     else:
         info = extract_info(video_url)
-        logger.info(f"Single video detected: {info.get('title', 'Untitled')}")
-        return info
+
+        video_info = {
+            "title": info.get("title", "Untitled"),
+            "duration": info.get("duration", 0),  # Độ dài video (giây)
+            "thumbnail": info.get("thumbnail", ""),
+            "url": video_url
+        }
+        log_info(f"START_INFO:{json.dumps(video_info)}:END_INFO")
+        return video_info
 
 def get_download_options(format_type, audio_format, video_quality, output_template):
     """Generate yt-dlp options based on download type and quality."""
@@ -77,7 +90,7 @@ def get_download_options(format_type, audio_format, video_quality, output_templa
 
 def download_video(video_name,video_url, format_type="video", audio_format="mp3", video_quality="720p", output_dir=None):
     """Download a single video or audio file from YouTube."""
-    logger.info(f"Starting download for: {video_name}")
+    log_info(f"Starting download for: {video_name}")
     try:
         info = extract_info(video_url)
         if not info:
@@ -90,15 +103,15 @@ def download_video(video_name,video_url, format_type="video", audio_format="mp3"
 
         # Check if file already exists (additional safety check)
         if os.path.exists(expected_output_path):
-            logger.info(f"File already exists: {expected_output_path}. Skipping download.")
+            log_info(f"File already exists: {expected_output_path}. Skipping download.")
             return
         
         ydl_opts = get_download_options(format_type, audio_format, video_quality, output_template)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
-        logger.info(f"Download completed: {expected_output_path}")
+        log_info(f"Download completed: {expected_output_path}")
     except Exception as e:
-        logger.error(f"Error downloading {video_url}: {e}")
+        log_info(f"Error downloading {video_url}: {e}")
 
 def process_url(url, format_type, audio_format, video_quality, output_dir):
     """Process a URL, handling both single videos and playlists with user selection."""
@@ -119,16 +132,16 @@ def process_url(url, format_type, audio_format, video_quality, output_dir):
                 indices = [int(x) - 1 for x in user_input.split()]
                 selected_urls = [info[i]['url'] for i in indices if 0 <= i < len(info)]
             except (ValueError, IndexError):
-                logger.error("Invalid input. Skipping playlist.")
+                log_info("Invalid input. Skipping playlist.")
                 return
         
         if not selected_urls:
-            logger.info("No valid videos selected. Skipping playlist.")
+            log_info("No valid videos selected. Skipping playlist.")
             return
         
         with ThreadPoolExecutor(max_workers=4) as executor:
             executor.map(lambda u: download_video(info.get("title", "video"), u, format_type, audio_format, video_quality, output_dir), selected_urls)
-            logger.info(f"All selected downloads for playlist {url} submitted")
+            log_info(f"All selected downloads for playlist {url} submitted")
     else:  # Single video
         download_video(info.get("title", "video"), url, format_type, audio_format, video_quality, output_dir)
 
@@ -145,7 +158,7 @@ def main():
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
     
-    logger.info("Starting YouTube Downloader")
+    log_info("Starting YouTube Downloader")
     for url in args.urls:
         process_url(url, args.format, args.audio_format, args.quality, args.output_dir)
 

@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:process_run/stdio.dart';
 import 'package:provider/provider.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:youtube_downloader_flutter/ui/download/download_controller.dart';
 import 'package:youtube_downloader_flutter/utils/download_config.dart';
 import 'package:youtube_downloader_flutter/utils/log_model.dart';
+import 'package:youtube_downloader_flutter/utils/video_info_model.dart';
 
 class DownloadScreen extends StatefulWidget {
   const DownloadScreen({super.key});
@@ -20,49 +18,6 @@ class _DownloadScreenState extends State<DownloadScreen> {
   DownloadType _downloadType = DownloadType.audio;
   AudioFormat _audioFormat = AudioFormat.mp3;
   VideoQuality _videoQuality = VideoQuality.fullHd;
-  String? _outputDir;
-
-  @override
-  void initState() {
-    super.initState();
-    _setDefaultDownloadDirectory(); // Set default directory on init
-  }
-
-  Future<void> _setDefaultDownloadDirectory() async {
-    try {
-      // Get the downloads directory using path_provider
-      Directory? downloadsDir;
-      downloadsDir = await getDownloadsDirectory();
-
-      if (downloadsDir != null) {
-        setState(() {
-          _outputDir = "${downloadsDir?.path}/youtube-downloader";
-        });
-      } else {
-        // Fallback if downloads directory is not available (e.g., some Android versions)
-        final dir = await getExternalStorageDirectory();
-        if (dir != null) {
-          setState(() {
-            _outputDir = "${dir.path}/youtube-downloader";
-          });
-        }
-      }
-    } catch (e) {
-      // Handle any errors (e.g., permissions or unsupported platforms)
-      setState(() {
-        _outputDir = null; // Let user pick manually if this fails
-      });
-    }
-  }
-
-  Future<void> _pickOutputDirectory() async {
-    String? selectedDir = await FilePicker.platform.getDirectoryPath();
-    if (selectedDir != null) {
-      setState(() {
-        _outputDir = selectedDir;
-      });
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -80,6 +35,10 @@ class _DownloadScreenState extends State<DownloadScreen> {
               children: [
                 _buildInputRow(controller),
                 const SizedBox(height: 16),
+                if (controller.videoInfo != null) ...[
+                  _buildVideoInfo(controller.videoInfo!),
+                  const SizedBox(height: 16),
+                ],
                 _buildOutputDirRow(controller),
                 const SizedBox(height: 16),
                 _buildDownloadButton(controller),
@@ -103,6 +62,47 @@ class _DownloadScreenState extends State<DownloadScreen> {
     );
   }
 
+  Widget _buildVideoInfo(VideoInfoModel videoInfo) {
+    final duration = Duration(seconds: videoInfo.duration);
+    final durationStr =
+        "${duration.inMinutes}:${(duration.inSeconds % 60).toString().padLeft(2, '0')}";
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Row(
+          children: [
+            if (videoInfo.thumbnailUrl.isNotEmpty)
+              Image.network(
+                videoInfo.thumbnailUrl,
+                width: 100,
+                height: 60,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) =>
+                    const Icon(Icons.broken_image),
+              ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    videoInfo.title,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text("Duration: $durationStr"),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildInputRow(DownloadController controller) {
     return Row(
       children: [
@@ -115,6 +115,10 @@ class _DownloadScreenState extends State<DownloadScreen> {
               border: OutlineInputBorder(),
             ),
             enabled: !controller.isDownloading,
+            onFieldSubmitted: (value) {
+              controller.youtubeDownloader(value, _downloadType, _audioFormat,
+                  _videoQuality, controller.outputDir);
+            },
           ),
         ),
         const SizedBox(width: 8),
@@ -144,16 +148,17 @@ class _DownloadScreenState extends State<DownloadScreen> {
       children: [
         Expanded(
           child: Text(
-            _outputDir ?? 'No output directory selected',
+            controller.outputDir ?? 'No output directory selected',
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: _outputDir == null ? Colors.grey : Colors.black,
+              color: controller.outputDir == null ? Colors.grey : Colors.black,
             ),
           ),
         ),
         const SizedBox(width: 8),
         ElevatedButton(
-          onPressed: controller.isDownloading ? null : _pickOutputDirectory,
+          onPressed:
+              controller.isDownloading ? null : controller.pickOutputDirectory,
           child: const Text('Choose Output Directory'),
         ),
       ],
@@ -195,14 +200,14 @@ class _DownloadScreenState extends State<DownloadScreen> {
       children: [
         Expanded(
           child: ElevatedButton(
-            onPressed: controller.isDownloading || _outputDir == null
+            onPressed: controller.isDownloading || controller.outputDir == null
                 ? null
                 : () => controller.youtubeDownloader(
                       _urlController.text,
                       _downloadType,
                       _audioFormat,
                       _videoQuality,
-                      _outputDir!,
+                      controller.outputDir,
                     ),
             child: controller.isDownloading
                 ? const CircularProgressIndicator(color: Colors.white)
