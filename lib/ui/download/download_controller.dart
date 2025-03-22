@@ -119,7 +119,6 @@ class DownloadController extends ChangeNotifier {
       '--output-dir',
       outputDir,
     ];
-    _logMessage("Arguments passed to script: $args"); // Thêm log để kiểm tra
     return args;
   }
 

@@ -27,7 +27,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/assets/excutable_for_app.py",
             "args": [
-                "https://www.youtube.com/watch?v=H58vbez_m4E",
+                "https://www.youtube.com/watch?v=mBRbVdSou0Q&list=PLmH_0jAzY3ViW8AggBVyw3wF3X387GABH&index=1",
                 "--format=audio",
                 "--audio-format=mp3",
                 // "--output-dir=DEFAULT_OUTPUT_DIR"
