@@ -18,7 +18,6 @@ class DownloadController extends ChangeNotifier {
   String? _outputDir;
   final List<String> _downloadedFilePaths = [];
   final List<VideoInfoModel> _videoInfos = [];
-// THAY ĐỔI: Thêm StreamController để phát log dưới dạng stream
   final StreamController<LogModel> _logController =
       StreamController.broadcast();
   Stream<LogModel> get processLogs => _logController.stream;
@@ -37,6 +36,13 @@ class DownloadController extends ChangeNotifier {
     await _setDefaultDownloadDirectory();
 
     await _notificationService.initialize();
+
+    final launchDetails = await _notificationService.getLaunchDetails();
+    if (launchDetails != null && launchDetails.didNotificationLaunchApp) {
+      final payload = launchDetails.notificationResponse?.payload;
+      logMessage('App launched from notification with payload: $payload');
+      // Có thể thêm logic xử lý, ví dụ: mở file hoặc điều hướng
+    }
   }
 
   Future<void> _setDefaultDownloadDirectory() async {
@@ -152,10 +158,10 @@ class DownloadController extends ChangeNotifier {
     resetDownloadState();
     _isDownloading = true;
     final urlsToDownload = playlistUrls ?? [youtubeUrl];
-    try {
-      // THAY ĐỔI: Điều chỉnh timeout dựa trên số lượng URL
-      final timeout = Duration(minutes: 5 * urlsToDownload.length);
+    int completedCount = 0; // THAY ĐỔI: Theo dõi số lượng hoàn tất
 
+    try {
+      final timeout = Duration(minutes: 5 * urlsToDownload.length);
       final args = [
         ...urlsToDownload,
         '--format=${downloadType.name}',
@@ -189,15 +195,25 @@ class DownloadController extends ChangeNotifier {
         }
         logMessage(data);
 
-        // THAY ĐỔI: Thêm đường dẫn file vào danh sách khi tải xong
         if (data.contains("Download completed:")) {
           final path = data.split("Download completed: ").last.trim();
           _downloadedFilePaths.add(path);
-          _notificationService.showNotification(
-            id: _downloadedFilePaths.length,
-            title: 'Download Completed',
-            body: 'File saved at: $path',
-          );
+          completedCount++; // THAY ĐỔI: Tăng số lượng hoàn tất
+
+          // THAY ĐỔI: Xử lý thông báo dựa trên số lượng URL
+          if (urlsToDownload.length == 1) {
+            _notificationService.showNotification(
+              id: _downloadedFilePaths.length,
+              title: 'Download Completed',
+              body: 'File saved at: $path',
+            );
+          } else if (completedCount == urlsToDownload.length) {
+            _notificationService.showNotification(
+              id: 0, // ID cố định cho thông báo tổng hợp
+              title: 'Playlist Download Completed',
+              body: '${urlsToDownload.length} files saved at: $_outputDir',
+            );
+          }
         }
         notifyListeners();
       });
