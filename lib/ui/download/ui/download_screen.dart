@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:youtube_downloader_flutter/ui/download/ui/playlist_view_screen.dart';
 import 'package:youtube_downloader_flutter/ui/download/controller/download_controller.dart';
 import 'package:youtube_downloader_flutter/utils/enums/download_config.dart';
+import 'package:youtube_downloader_flutter/utils/models/log_model.dart';
 import 'package:youtube_downloader_flutter/utils/models/video_info_model.dart';
 
 class DownloadScreen extends StatefulWidget {
@@ -22,6 +23,19 @@ class _DownloadScreenState extends State<DownloadScreen> {
   Widget build(BuildContext context) {
     return Consumer<DownloadController>(
       builder: (context, controller, child) {
+        controller.processLogs.listen((log) {
+          if (log.type == LogType.error &&
+              log.message.contains('[ERROR]') &&
+              mounted) {
+            final errorMsg = _parseErrorMessage(log.message);
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(errorMsg)),
+              );
+            }
+          }
+        });
+
         return Scaffold(
           appBar: AppBar(
             title: const Text('YouTube Downloader'),
@@ -284,6 +298,17 @@ class _DownloadScreenState extends State<DownloadScreen> {
         videoQuality: _videoQuality,
       );
     }
+  }
+
+  String _parseErrorMessage(String message) {
+    if (message.contains('Video unavailable')) {
+      return 'Video is unavailable or blocked in your region.';
+    } else if (message.contains('TimeoutException')) {
+      return 'Download took too long, please try again.';
+    } else if (message.contains('network')) {
+      return 'Network error, please check your internet connection.';
+    }
+    return 'An error occurred: ${message.split('[ERROR] ').last}';
   }
 }
 

@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:youtube_downloader_flutter/utils/enums/download_config.dart';
 import 'package:youtube_downloader_flutter/utils/models/log_model.dart';
 import 'package:youtube_downloader_flutter/utils/models/video_info_model.dart';
@@ -11,11 +13,16 @@ import 'package:youtube_downloader_flutter/utils/services/download_services.dart
 
 class DownloadController extends ChangeNotifier {
   final DownloadService _service = DownloadService();
+  final FlutterLocalNotificationsPlugin _notificationsPlugin =
+      FlutterLocalNotificationsPlugin();
   bool _isDownloading = false;
   String? _outputDir;
   String? _downloadedFilePath;
   final List<VideoInfoModel> _videoInfos = [];
-  final List<LogModel> processLogs = [];
+// THAY ĐỔI: Thêm StreamController để phát log dưới dạng stream
+  final StreamController<LogModel> _logController =
+      StreamController.broadcast();
+  Stream<LogModel> get processLogs => _logController.stream;
 
   bool get isDownloading => _isDownloading;
   String? get outputDir => _outputDir;
@@ -29,16 +36,31 @@ class DownloadController extends ChangeNotifier {
   Future<void> _initialize() async {
     await _service.initializeScript();
     await _setDefaultDownloadDirectory();
+
+    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const initSettings = InitializationSettings(android: androidInit);
+    await _notificationsPlugin.initialize(initSettings);
   }
 
   Future<void> _setDefaultDownloadDirectory() async {
     try {
+      if (Platform.isAndroid || Platform.isIOS) {
+        final status = await Permission.storage.request();
+        if (!status.isGranted) {
+          logMessage(
+              'Storage permission denied, please select a directory manually',
+              LogType.error);
+          await pickOutputDirectory();
+          if (_outputDir == null) throw Exception('No directory selected');
+          return;
+        }
+      }
+
       Directory? downloadsDir = await getDownloadsDirectory();
       _outputDir = downloadsDir != null
           ? "${downloadsDir.path}/youtube-downloader"
           : (await getExternalStorageDirectory())?.path;
-      Directory(_outputDir!)
-          .createSync(recursive: true); // Đảm bảo thư mục tồn tại
+      Directory(_outputDir!).createSync(recursive: true);
     } catch (e) {
       _outputDir = null;
       logMessage('Error setting default directory: $e', LogType.error);
@@ -68,7 +90,7 @@ class DownloadController extends ChangeNotifier {
   void logMessage(String message, [LogType type = LogType.info]) {
     final logMessage = message.trim();
     if (logMessage.isEmpty) return;
-    processLogs.add(LogModel(logMessage, type));
+    _logController.add(LogModel(logMessage, type));
     debugPrint(logMessage);
     notifyListeners();
   }
@@ -84,9 +106,7 @@ class DownloadController extends ChangeNotifier {
   void _cleanupTempFiles() {
     if (_outputDir != null) {
       Directory(_outputDir!).listSync().forEach((entity) {
-        if (entity.path.endsWith('.part')) {
-          entity.deleteSync();
-        }
+        if (entity.path.endsWith('.part')) entity.deleteSync();
       });
     }
   }
@@ -94,13 +114,12 @@ class DownloadController extends ChangeNotifier {
   Future<List<VideoInfoModel>?> fetchPlaylistVideos(String playlistUrl) async {
     resetDownloadState();
     _isDownloading = true;
-
     try {
       final args = [
-        playlistUrl,
         '--format=info-only',
         '--output-dir',
-        _outputDir ?? ''
+        _outputDir ?? '',
+        playlistUrl
       ];
       String output = '';
       await _service.executeDownloadProcess(playlistUrl, args,
@@ -137,43 +156,57 @@ class DownloadController extends ChangeNotifier {
     _isDownloading = true;
     final urlsToDownload = playlistUrls ?? [youtubeUrl];
     try {
-      await Future.wait(urlsToDownload.map((url) async {
-        final args = [
-          url,
-          '--format=${downloadType.name}',
-          if (downloadType == DownloadType.audio)
-            '--audio-format=${audioFormat.name}',
-          if (downloadType == DownloadType.video)
-            '--quality=${videoQuality.name}',
-          '--output-dir',
-          _outputDir!,
-        ];
+      final args = [
+        ...urlsToDownload,
+        '--format=${downloadType.name}',
+        if (downloadType == DownloadType.audio)
+          '--audio-format=${audioFormat.name}',
+        if (downloadType == DownloadType.video)
+          '--quality=${videoQuality.name}',
+        '--output-dir',
+        _outputDir!,
+      ];
 
-        await _service.executeDownloadProcess(url, args, onOutput: (data) {
-          if (data.contains("START_INFO")) {
-            final start = data.indexOf("START_INFO:") + "START_INFO:".length;
-            final end = data.indexOf(":END_INFO");
-            final jsonStr = data.substring(start, end).trim();
-            final json = jsonDecode(jsonStr);
-            final videoInfo = VideoInfoModel.fromJson(json);
-            final index =
-                _videoInfos.indexWhere((element) => element.id == videoInfo.id);
+      await _service.executeDownloadProcess(youtubeUrl, args, onOutput: (data) {
+        if (data.contains("START_INFO")) {
+          final start = data.indexOf("START_INFO:") + "START_INFO:".length;
+          final end = data.indexOf(":END_INFO");
+          final jsonStr = data.substring(start, end).trim();
+          final json = jsonDecode(jsonStr);
+          final videoInfo = VideoInfoModel.fromJson(json);
+          final index =
+              _videoInfos.indexWhere((element) => element.id == videoInfo.id);
 
-            if (index != -1) {
-              _videoInfos[index] = videoInfo.copyWith(
-                percent: videoInfo.percent,
-                status: videoInfo.status,
-              );
-            } else {
-              _videoInfos.add(videoInfo);
-            }
+          if (index != -1) {
+            _videoInfos[index] = videoInfo.copyWith(
+              percent: videoInfo.percent,
+              status: videoInfo.status,
+            );
+          } else {
+            _videoInfos.add(videoInfo);
           }
-          logMessage(data);
-          notifyListeners();
-        });
+        }
+        logMessage(data);
+        notifyListeners();
+      });
 
-        _downloadedFilePath = await _getOutputPathFromLogs();
-      }));
+      _downloadedFilePath = await _getOutputPathFromLogs();
+      // THAY ĐỔI: Gửi thông báo khi tải xong
+      if (_downloadedFilePath != null) {
+        await _notificationsPlugin.show(
+          0,
+          'Download Completed',
+          'File saved at: $_downloadedFilePath',
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'download_channel',
+              'Download Notifications',
+              importance: Importance.max,
+              priority: Priority.high,
+            ),
+          ),
+        );
+      }
     } catch (e) {
       logMessage('Error: $e', LogType.error);
     } finally {
@@ -183,7 +216,8 @@ class DownloadController extends ChangeNotifier {
   }
 
   Future<String?> _getOutputPathFromLogs() async {
-    final log = processLogs.lastWhere(
+    // THAY ĐỔI: Tạm thời giữ logic cũ, nhưng có thể cải thiện nếu cần
+    final log = await processLogs.firstWhere(
       (log) => log.message.contains("Download completed:"),
       orElse: () => LogModel("", LogType.info),
     );
@@ -196,7 +230,12 @@ class DownloadController extends ChangeNotifier {
     _isDownloading = false;
     _downloadedFilePath = null;
     _videoInfos.clear();
-    processLogs.clear();
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _logController.close();
+    super.dispose();
   }
 }
