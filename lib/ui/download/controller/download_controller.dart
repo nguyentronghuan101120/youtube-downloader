@@ -1,22 +1,21 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:youtube_downloader_flutter/utils/enums/download_config.dart';
 import 'package:youtube_downloader_flutter/utils/models/log_model.dart';
 import 'package:youtube_downloader_flutter/utils/models/video_info_model.dart';
+import 'package:youtube_downloader_flutter/utils/services/download_services.dart';
 
 class DownloadController extends ChangeNotifier {
+  final DownloadService _service = DownloadService();
   bool _isDownloading = false;
   String? _outputDir;
-  late String _scriptPath;
   String? _downloadedFilePath;
   final List<VideoInfoModel> _videoInfos = [];
   final List<LogModel> processLogs = [];
-  late Process process;
 
   bool get isDownloading => _isDownloading;
   String? get outputDir => _outputDir;
@@ -24,19 +23,12 @@ class DownloadController extends ChangeNotifier {
   List<VideoInfoModel> get videoInfos => _videoInfos;
 
   DownloadController() {
-    _initializeScript();
-    _setDefaultDownloadDirectory();
+    _initialize();
   }
 
-  Future<void> _initializeScript() async {
-    final byteData = await rootBundle.load('assets/main.py');
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/main.py');
-    await file.writeAsBytes(byteData.buffer.asUint8List(), flush: true);
-    _scriptPath = file.path;
-    if (Platform.isLinux || Platform.isMacOS) {
-      await Process.run('chmod', ['+x', _scriptPath]);
-    }
+  Future<void> _initialize() async {
+    await _service.initializeScript();
+    await _setDefaultDownloadDirectory();
   }
 
   Future<void> _setDefaultDownloadDirectory() async {
@@ -45,6 +37,8 @@ class DownloadController extends ChangeNotifier {
       _outputDir = downloadsDir != null
           ? "${downloadsDir.path}/youtube-downloader"
           : (await getExternalStorageDirectory())?.path;
+      Directory(_outputDir!)
+          .createSync(recursive: true); // Đảm bảo thư mục tồn tại
     } catch (e) {
       _outputDir = null;
       logMessage('Error setting default directory: $e', LogType.error);
@@ -60,48 +54,15 @@ class DownloadController extends ChangeNotifier {
     }
   }
 
-  bool _isValidUrl(String url) {
+  bool isValidUrl(String url) {
     final regex =
         RegExp(r'^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.*$');
     return regex.hasMatch(url.trim());
   }
 
-  // THAY ĐỔI: Thêm phương thức mới để kiểm tra URL có phải playlist không
-  // Comment: Thêm logic kiểm tra trực tiếp trong ứng dụng thay vì gọi script
   bool isPlaylistUrl(String url) {
     final uri = Uri.parse(url);
     return uri.queryParameters.containsKey('list');
-  }
-
-  Future<void> executeDownloadProcess(
-    String url,
-    List<String> args, {
-    required void Function(String) onOutput,
-  }) async {
-    if (!_isValidUrl(url)) {
-      logMessage('Invalid YouTube URL', LogType.error);
-      notifyListeners();
-      return;
-    }
-
-    if (_outputDir == null) {
-      logMessage('No output directory selected', LogType.error);
-      notifyListeners();
-      return;
-    }
-
-    process = await Process.start('python', [_scriptPath, ...args]);
-    process.stdout.transform(utf8.decoder).listen((data) {
-      onOutput(data);
-    });
-    process.stderr.transform(utf8.decoder).listen((data) {
-      logMessage(data, LogType.error);
-    });
-
-    await process.exitCode.timeout(const Duration(minutes: 30), onTimeout: () {
-      process.kill();
-      throw TimeoutException("Download took too long.");
-    });
   }
 
   void logMessage(String message, [LogType type = LogType.info]) {
@@ -113,21 +74,26 @@ class DownloadController extends ChangeNotifier {
   }
 
   void cancelDownload() {
+    _service.killProcess();
+    _cleanupTempFiles();
     logMessage("Download cancelled", LogType.warning);
     resetDownloadState();
-    process.kill();
-
     notifyListeners();
+  }
+
+  void _cleanupTempFiles() {
+    if (_outputDir != null) {
+      Directory(_outputDir!).listSync().forEach((entity) {
+        if (entity.path.endsWith('.part')) {
+          entity.deleteSync();
+        }
+      });
+    }
   }
 
   Future<List<VideoInfoModel>?> fetchPlaylistVideos(String playlistUrl) async {
     resetDownloadState();
     _isDownloading = true;
-    if (!_isValidUrl(playlistUrl)) {
-      logMessage('Invalid YouTube URL', LogType.error);
-      notifyListeners();
-      return null;
-    }
 
     try {
       final args = [
@@ -136,8 +102,11 @@ class DownloadController extends ChangeNotifier {
         '--output-dir',
         _outputDir ?? ''
       ];
-      process = await Process.start('python', [_scriptPath, ...args]);
-      final output = await process.stdout.transform(utf8.decoder).join();
+      String output = '';
+      await _service.executeDownloadProcess(playlistUrl, args,
+          onOutput: (data) {
+        output += data;
+      });
       final jsonMatch = RegExp(r'START_INFO:(.+):END_INFO').firstMatch(output);
       if (jsonMatch != null) {
         final jsonStr = jsonMatch.group(1)!;
@@ -151,6 +120,9 @@ class DownloadController extends ChangeNotifier {
       logMessage('Error fetching playlist: $e', LogType.error);
       resetDownloadState();
       return null;
+    } finally {
+      _isDownloading = false;
+      notifyListeners();
     }
   }
 
@@ -177,8 +149,8 @@ class DownloadController extends ChangeNotifier {
           _outputDir!,
         ];
 
-        await executeDownloadProcess(url, args, onOutput: (data) {
-          if (data.startsWith("START_INFO") && data.contains("START_INFO")) {
+        await _service.executeDownloadProcess(url, args, onOutput: (data) {
+          if (data.contains("START_INFO")) {
             final start = data.indexOf("START_INFO:") + "START_INFO:".length;
             final end = data.indexOf(":END_INFO");
             final jsonStr = data.substring(start, end).trim();
@@ -208,10 +180,6 @@ class DownloadController extends ChangeNotifier {
       _isDownloading = false;
       notifyListeners();
     }
-  }
-
-  void setPlaylistUrls(List<String> urls) {
-    notifyListeners();
   }
 
   Future<String?> _getOutputPathFromLogs() async {

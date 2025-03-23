@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:youtube_downloader_flutter/ui/download/ui/playlist_view_screen.dart';
 import 'package:youtube_downloader_flutter/ui/download/controller/download_controller.dart';
 import 'package:youtube_downloader_flutter/utils/enums/download_config.dart';
-import 'package:youtube_downloader_flutter/utils/models/log_model.dart';
 import 'package:youtube_downloader_flutter/utils/models/video_info_model.dart';
 
 class DownloadScreen extends StatefulWidget {
@@ -15,7 +14,6 @@ class DownloadScreen extends StatefulWidget {
 
 class _DownloadScreenState extends State<DownloadScreen> {
   final TextEditingController _urlController = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
   DownloadType _downloadType = DownloadType.audio;
   AudioFormat _audioFormat = AudioFormat.mp3;
   VideoQuality _videoQuality = VideoQuality.fullHd;
@@ -40,6 +38,11 @@ class _DownloadScreenState extends State<DownloadScreen> {
                 const SizedBox(height: 16),
                 _buildDownloadButton(controller),
                 const SizedBox(height: 16),
+                if (controller.isDownloading)
+                  Text(
+                    'Đang tải: ${controller.videoInfos.length} video',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 Expanded(
                   child: Row(
                     children: [
@@ -101,6 +104,8 @@ class _DownloadScreenState extends State<DownloadScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text("Duration: $durationStr"),
+                        if (videoInfo.status != null)
+                          Text("Status: ${videoInfo.status}"),
                       ],
                     ),
                   ),
@@ -115,7 +120,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
                 value: videoInfo.percent != null ? videoInfo.percent! / 100 : 0,
                 backgroundColor: Colors.grey[300],
                 valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
-              )
+              ),
             ],
           ),
         ),
@@ -142,10 +147,8 @@ class _DownloadScreenState extends State<DownloadScreen> {
         DropdownButton<DownloadType>(
           value: _downloadType,
           items: DownloadType.values
-              .map((type) => DropdownMenuItem(
-                    value: type,
-                    child: Text(type.name),
-                  ))
+              .map((type) =>
+                  DropdownMenuItem(value: type, child: Text(type.name)))
               .toList(),
           onChanged: controller.isDownloading
               ? null
@@ -236,47 +239,30 @@ class _DownloadScreenState extends State<DownloadScreen> {
     );
   }
 
-  Widget _buildLogList(DownloadController controller) {
-    if (controller.processLogs.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-        }
-      });
-    }
-
-    return ListView.separated(
-      shrinkWrap: true,
-      separatorBuilder: (context, index) => const SizedBox(height: 8),
-      controller: _scrollController,
-      itemCount: controller.processLogs.length,
-      itemBuilder: (context, index) {
-        return SelectableText(
-          controller.processLogs[index].message,
-          style: TextStyle(color: controller.processLogs[index].type.color),
-        );
-      },
-    );
-  }
-
   void _handleUrlInput(DownloadController controller) async {
-    final url = _urlController.text;
+    final url = _urlController.text.trim();
+    if (url.isEmpty || !controller.isValidUrl(url)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid YouTube URL')),
+      );
+      return;
+    }
 
     if (controller.isPlaylistUrl(url)) {
       final listVideos = await controller.fetchPlaylistVideos(url);
       if (listVideos == null || listVideos.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to fetch playlist videos')),
+          );
+        }
         return;
       }
       if (mounted) {
         final selectedUrls = await Navigator.push<List<String>>(
           context,
           MaterialPageRoute(
-            builder: (_) => PlaylistViewScreen(videos: listVideos),
-          ),
+              builder: (_) => PlaylistViewScreen(videos: listVideos)),
         );
         if (selectedUrls != null && selectedUrls.isNotEmpty) {
           controller.youtubeDownloader(
