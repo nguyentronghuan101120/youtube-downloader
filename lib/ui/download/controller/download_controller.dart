@@ -3,18 +3,17 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:youtube_downloader_flutter/utils/enums/download_config.dart';
 import 'package:youtube_downloader_flutter/utils/models/log_model.dart';
 import 'package:youtube_downloader_flutter/utils/models/video_info_model.dart';
 import 'package:youtube_downloader_flutter/utils/services/download_services.dart';
+import 'package:youtube_downloader_flutter/utils/services/notification_service.dart';
 
 class DownloadController extends ChangeNotifier {
   final DownloadService _service = DownloadService();
-  final FlutterLocalNotificationsPlugin _notificationsPlugin =
-      FlutterLocalNotificationsPlugin();
+  final NotificationService _notificationService = NotificationService();
   bool _isDownloading = false;
   String? _outputDir;
   final List<String> _downloadedFilePaths = [];
@@ -37,9 +36,7 @@ class DownloadController extends ChangeNotifier {
     await _service.initializeScript();
     await _setDefaultDownloadDirectory();
 
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: androidInit);
-    await _notificationsPlugin.initialize(initSettings);
+    await _notificationService.initialize();
   }
 
   Future<void> _setDefaultDownloadDirectory() async {
@@ -196,19 +193,10 @@ class DownloadController extends ChangeNotifier {
         if (data.contains("Download completed:")) {
           final path = data.split("Download completed: ").last.trim();
           _downloadedFilePaths.add(path);
-          // THAY ĐỔI: Gửi thông báo cho từng file
-          _notificationsPlugin.show(
-            _downloadedFilePaths.length, // ID tăng dần để tránh trùng
-            'Download Completed',
-            'File saved at: $path',
-            const NotificationDetails(
-              android: AndroidNotificationDetails(
-                'download_channel',
-                'Download Notifications',
-                importance: Importance.max,
-                priority: Priority.high,
-              ),
-            ),
+          _notificationService.showNotification(
+            id: _downloadedFilePaths.length,
+            title: 'Download Completed',
+            body: 'File saved at: $path',
           );
         }
         notifyListeners();
