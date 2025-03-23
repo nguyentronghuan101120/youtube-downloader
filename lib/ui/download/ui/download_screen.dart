@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:youtube_downloader_flutter/ui/download/download_controller.dart';
-import 'package:youtube_downloader_flutter/utils/download_config.dart';
-import 'package:youtube_downloader_flutter/utils/log_model.dart';
-import 'package:youtube_downloader_flutter/utils/video_info_model.dart';
+import 'package:youtube_downloader_flutter/ui/download/ui/playlist_view_screen.dart';
+import 'package:youtube_downloader_flutter/ui/download/controller/download_controller.dart';
+import 'package:youtube_downloader_flutter/utils/enums/download_config.dart';
+import 'package:youtube_downloader_flutter/utils/models/log_model.dart';
+import 'package:youtube_downloader_flutter/utils/models/video_info_model.dart';
 
 class DownloadScreen extends StatefulWidget {
   const DownloadScreen({super.key});
@@ -35,25 +36,24 @@ class _DownloadScreenState extends State<DownloadScreen> {
               children: [
                 _buildInputRow(controller),
                 const SizedBox(height: 16),
-                if (controller.videoInfo != null) ...[
-                  _buildVideoInfo(controller.videoInfo!),
-                  const SizedBox(height: 16),
-                ],
                 _buildOutputDirRow(controller),
                 const SizedBox(height: 16),
                 _buildDownloadButton(controller),
                 const SizedBox(height: 16),
-                _buildLogList(controller),
-                if (controller.downloadedFilePath != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    "Download saved at: ${controller.downloadedFilePath}",
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green,
-                    ),
+                Expanded(
+                  child: Row(
+                    children: [
+                      if (controller.videoInfos.isNotEmpty)
+                        Flexible(
+                          child: ListView.builder(
+                            itemCount: controller.videoInfos.length,
+                            itemBuilder: (context, index) =>
+                                _buildVideoInfo(controller.videoInfos[index]),
+                          ),
+                        ),
+                    ],
                   ),
-                ],
+                ),
               ],
             ),
           ),
@@ -63,41 +63,61 @@ class _DownloadScreenState extends State<DownloadScreen> {
   }
 
   Widget _buildVideoInfo(VideoInfoModel videoInfo) {
-    final duration = Duration(seconds: videoInfo.duration);
+    final duration = Duration(seconds: videoInfo.duration ?? 0);
     final durationStr =
         "${duration.inMinutes}:${(duration.inSeconds % 60).toString().padLeft(2, '0')}";
     return Card(
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(8.0),
-        child: Row(
-          children: [
-            if (videoInfo.thumbnailUrl.isNotEmpty)
-              Image.network(
-                videoInfo.thumbnailUrl,
-                width: 100,
-                height: 60,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) =>
-                    const Icon(Icons.broken_image),
-              ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              Row(
                 children: [
-                  Text(
-                    videoInfo.title,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  if (videoInfo.thumbnailUrl != null &&
+                      videoInfo.thumbnailUrl!.isNotEmpty)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        videoInfo.thumbnailUrl!,
+                        width: 100,
+                        height: 60,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Icon(Icons.broken_image),
+                      ),
+                    ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          videoInfo.title ?? 'Untitled',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text("Duration: $durationStr"),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 4),
-                  Text("Duration: $durationStr"),
+                  Text(
+                    "${videoInfo.percent ?? 0}%",
+                    style: const TextStyle(fontSize: 14),
+                  ),
                 ],
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              LinearProgressIndicator(
+                value: videoInfo.percent != null ? videoInfo.percent! / 100 : 0,
+                backgroundColor: Colors.grey[300],
+                valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+              )
+            ],
+          ),
         ),
       ),
     );
@@ -115,10 +135,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
               border: OutlineInputBorder(),
             ),
             enabled: !controller.isDownloading,
-            onFieldSubmitted: (value) {
-              controller.youtubeDownloader(value, _downloadType, _audioFormat,
-                  _videoQuality, controller.outputDir);
-            },
+            onFieldSubmitted: (_) => _handleUrlInput(controller),
           ),
         ),
         const SizedBox(width: 8),
@@ -127,7 +144,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
           items: DownloadType.values
               .map((type) => DropdownMenuItem(
                     value: type,
-                    child: Text(type.name.capitalize()),
+                    child: Text(type.name),
                   ))
               .toList(),
           onChanged: controller.isDownloading
@@ -202,13 +219,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
           child: ElevatedButton(
             onPressed: controller.isDownloading || controller.outputDir == null
                 ? null
-                : () => controller.youtubeDownloader(
-                      _urlController.text,
-                      _downloadType,
-                      _audioFormat,
-                      _videoQuality,
-                      controller.outputDir,
-                    ),
+                : () => _handleUrlInput(controller),
             child: controller.isDownloading
                 ? const CircularProgressIndicator(color: Colors.white)
                 : const Text('Start Download'),
@@ -238,19 +249,55 @@ class _DownloadScreenState extends State<DownloadScreen> {
       });
     }
 
-    return Expanded(
-      child: ListView.separated(
-        separatorBuilder: (context, index) => const SizedBox(height: 8),
-        controller: _scrollController,
-        itemCount: controller.processLogs.length,
-        itemBuilder: (context, index) {
-          return SelectableText(
-            controller.processLogs[index].message,
-            style: TextStyle(color: controller.processLogs[index].type.color),
-          );
-        },
-      ),
+    return ListView.separated(
+      shrinkWrap: true,
+      separatorBuilder: (context, index) => const SizedBox(height: 8),
+      controller: _scrollController,
+      itemCount: controller.processLogs.length,
+      itemBuilder: (context, index) {
+        return SelectableText(
+          controller.processLogs[index].message,
+          style: TextStyle(color: controller.processLogs[index].type.color),
+        );
+      },
     );
+  }
+
+  void _handleUrlInput(DownloadController controller) async {
+    final url = _urlController.text;
+
+    if (controller.isPlaylistUrl(url)) {
+      final listVideos = await controller.fetchPlaylistVideos(url);
+      if (listVideos == null || listVideos.isEmpty) {
+        return;
+      }
+      if (mounted) {
+        final selectedUrls = await Navigator.push<List<String>>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PlaylistViewScreen(videos: listVideos),
+          ),
+        );
+        if (selectedUrls != null && selectedUrls.isNotEmpty) {
+          controller.youtubeDownloader(
+            url,
+            downloadType: _downloadType,
+            audioFormat: _audioFormat,
+            videoQuality: _videoQuality,
+            playlistUrls: selectedUrls,
+          );
+        } else {
+          controller.resetDownloadState();
+        }
+      }
+    } else {
+      controller.youtubeDownloader(
+        url,
+        downloadType: _downloadType,
+        audioFormat: _audioFormat,
+        videoQuality: _videoQuality,
+      );
+    }
   }
 }
 

@@ -1,0 +1,1 @@
+enum VideoDownloadStatus { pending, downloading, completed, error }

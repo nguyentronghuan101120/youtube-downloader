@@ -12,11 +12,11 @@ enum VideoQuality {
 }
 
 extension VideoQualityExtension on VideoQuality {
-  String get value => switch (this) {
-        VideoQuality.sd => '360p',
-        VideoQuality.hd => '480p',
-        VideoQuality.fullHd => '720p',
-        VideoQuality.qhd => '1080p',
+  String get quality => switch (this) {
+        VideoQuality.sd => '480p',
+        VideoQuality.hd => '720p',
+        VideoQuality.fullHd => '1080p',
+        VideoQuality.qhd => '1440p',
         VideoQuality.uhd => '4k',
       };
 }
@@ -24,6 +24,6 @@ extension VideoQualityExtension on VideoQuality {
 enum AudioFormat {
   mp3,
   flac,
-  aac,
+  m4a,
   wav,
 }

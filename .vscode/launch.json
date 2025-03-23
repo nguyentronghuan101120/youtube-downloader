@@ -25,12 +25,24 @@
             "name": "Python: Execute Video Downloader",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/assets/excutable_for_app.py",
+            "program": "${workspaceFolder}/assets/main.py",
             "args": [
-                "https://www.youtube.com/watch?v=mBRbVdSou0Q&list=PLmH_0jAzY3ViW8AggBVyw3wF3X387GABH&index=1",
+                "https://www.youtube.com/watch?v=UqyT8IEBkvY",
                 "--format=audio",
                 "--audio-format=mp3",
                 // "--output-dir=DEFAULT_OUTPUT_DIR"
+            ],
+            "console": "integratedTerminal"
+        },
+
+        {
+            "name": "Python: Get Playlist Info",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/assets/main.py",
+            "args": [
+                "https://www.youtube.com/watch?v=mBRbVdSou0Q&list=PLmH_0jAzY3ViW8AggBVyw3wF3X387GABH&index=1",
+                "--format=info-only",
             ],
             "console": "integratedTerminal"
         },
