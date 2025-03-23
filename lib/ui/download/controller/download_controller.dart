@@ -17,7 +17,7 @@ class DownloadController extends ChangeNotifier {
       FlutterLocalNotificationsPlugin();
   bool _isDownloading = false;
   String? _outputDir;
-  String? _downloadedFilePath;
+  final List<String> _downloadedFilePaths = [];
   final List<VideoInfoModel> _videoInfos = [];
 // THAY ĐỔI: Thêm StreamController để phát log dưới dạng stream
   final StreamController<LogModel> _logController =
@@ -26,7 +26,7 @@ class DownloadController extends ChangeNotifier {
 
   bool get isDownloading => _isDownloading;
   String? get outputDir => _outputDir;
-  String? get downloadedFilePath => _downloadedFilePath;
+  List<String> get downloadedFilePaths => _downloadedFilePaths;
   List<VideoInfoModel> get videoInfos => _videoInfos;
 
   DownloadController() {
@@ -156,6 +156,9 @@ class DownloadController extends ChangeNotifier {
     _isDownloading = true;
     final urlsToDownload = playlistUrls ?? [youtubeUrl];
     try {
+      // THAY ĐỔI: Điều chỉnh timeout dựa trên số lượng URL
+      final timeout = Duration(minutes: 5 * urlsToDownload.length);
+
       final args = [
         ...urlsToDownload,
         '--format=${downloadType.name}',
@@ -167,7 +170,8 @@ class DownloadController extends ChangeNotifier {
         _outputDir!,
       ];
 
-      await _service.executeDownloadProcess(youtubeUrl, args, onOutput: (data) {
+      await _service.executeDownloadProcess(youtubeUrl, args, timeout: timeout,
+          onOutput: (data) {
         if (data.contains("START_INFO")) {
           final start = data.indexOf("START_INFO:") + "START_INFO:".length;
           final end = data.indexOf(":END_INFO");
@@ -187,26 +191,28 @@ class DownloadController extends ChangeNotifier {
           }
         }
         logMessage(data);
+
+        // THAY ĐỔI: Thêm đường dẫn file vào danh sách khi tải xong
+        if (data.contains("Download completed:")) {
+          final path = data.split("Download completed: ").last.trim();
+          _downloadedFilePaths.add(path);
+          // THAY ĐỔI: Gửi thông báo cho từng file
+          _notificationsPlugin.show(
+            _downloadedFilePaths.length, // ID tăng dần để tránh trùng
+            'Download Completed',
+            'File saved at: $path',
+            const NotificationDetails(
+              android: AndroidNotificationDetails(
+                'download_channel',
+                'Download Notifications',
+                importance: Importance.max,
+                priority: Priority.high,
+              ),
+            ),
+          );
+        }
         notifyListeners();
       });
-
-      _downloadedFilePath = await _getOutputPathFromLogs();
-      // THAY ĐỔI: Gửi thông báo khi tải xong
-      if (_downloadedFilePath != null) {
-        await _notificationsPlugin.show(
-          0,
-          'Download Completed',
-          'File saved at: $_downloadedFilePath',
-          const NotificationDetails(
-            android: AndroidNotificationDetails(
-              'download_channel',
-              'Download Notifications',
-              importance: Importance.max,
-              priority: Priority.high,
-            ),
-          ),
-        );
-      }
     } catch (e) {
       logMessage('Error: $e', LogType.error);
     } finally {
@@ -215,20 +221,9 @@ class DownloadController extends ChangeNotifier {
     }
   }
 
-  Future<String?> _getOutputPathFromLogs() async {
-    // THAY ĐỔI: Tạm thời giữ logic cũ, nhưng có thể cải thiện nếu cần
-    final log = await processLogs.firstWhere(
-      (log) => log.message.contains("Download completed:"),
-      orElse: () => LogModel("", LogType.info),
-    );
-    return log.message.contains("Download completed:")
-        ? log.message.split("Download completed: ").last.trim()
-        : null;
-  }
-
   void resetDownloadState() {
     _isDownloading = false;
-    _downloadedFilePath = null;
+    _downloadedFilePaths.clear();
     _videoInfos.clear();
     notifyListeners();
   }
