@@ -44,7 +44,6 @@ def extract_info(url, extract_flat=False):
         raise VideoDownloadException(f"Cannot extract information from {url}: {str(e)}")
 
 def get_video_info(video_url):
-    log_info(f"Fetching info for URL: {video_url}")
     parsed_url = urlparse(video_url)
     query_params = parse_qs(parsed_url.query)
     playlist_id = query_params.get("list", [None])[0]
@@ -54,6 +53,8 @@ def get_video_info(video_url):
         info = extract_info(playlist_url, extract_flat=True)
         playlist_videos = [
             {
+                "id": entry.get("id", ""),
+                "status": "not_downloaded",
                 "title": entry.get("title", "Untitled"),
                 "url": entry["url"],
                 "duration": entry.get("duration", 0),
@@ -68,8 +69,9 @@ def get_video_info(video_url):
         video_info = {
             "id": info.get("id", ""),
             "title": info.get("title", "Untitled"),
+            "status": "not_downloaded",
             "duration": info.get("duration", 0),
-            "thumbnail": info.get("thumbnails", [{}])[0].get("url", "") if info.get("thumbnails") else "",
+            "thumbnail": info.get("thumbnails", [{}])[0].get("url", "") if info.get("thumbnails") and len(info.get("thumbnails")) > 0 else "",
             "url": video_url
         }
         log_info(f"START_INFO:{json.dumps(video_info)}:END_INFO")
@@ -78,17 +80,11 @@ def get_video_info(video_url):
 def progress_hook(d):
     progress_data = {
         "id": d["info_dict"]["id"],
-        "title": d["info_dict"]["title"],
-        "duration": d["info_dict"]["duration"],
-        "thumbnail": d["info_dict"]["thumbnails"][0]["url"],
-        "url": d["info_dict"]["url"],
-        "status": d["status"],
+        "status": d["status"] ,
         "percent": d["_percent_str"].replace("%", ""),
         "total_bytes": d.get("total_bytes", "unknown")
     }
-    if d["status"] == "finished":
-        progress_data["percent"] = "100"
-        progress_data["status"] = "completed"
+
     log_info(f"START_INFO:{json.dumps(progress_data)}:END_INFO")
 
 def get_download_options(format_type, audio_format, video_quality, output_template):
@@ -136,7 +132,12 @@ def download_video(video_url, format_type="video", audio_format=CONFIG["default_
         expected_output_path = f"{output_template}.{file_extension}"
 
         if os.path.exists(expected_output_path):
-            log_info(f"File already exists: {expected_output_path}. Skipping download.")
+            video_info = {
+                "id": info.get("id", ""),
+                "status": "finished",
+                "output_path": expected_output_path
+            }
+            log_info(f"START_INFO:{json.dumps(video_info)}:END_INFO")
             return
 
         ydl_opts = get_download_options(format_type, audio_format, video_quality, output_template)

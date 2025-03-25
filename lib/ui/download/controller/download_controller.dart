@@ -1,31 +1,63 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:youtube_downloader_flutter/utils/enums/download_config.dart';
+import 'package:youtube_downloader_flutter/utils/enums/log_type.dart';
+import 'package:youtube_downloader_flutter/utils/enums/video_download_status.dart';
 import 'package:youtube_downloader_flutter/utils/models/log_model.dart';
 import 'package:youtube_downloader_flutter/utils/models/video_info_model.dart';
-import 'package:youtube_downloader_flutter/utils/services/download_services.dart';
+import 'package:youtube_downloader_flutter/utils/services/download_service.dart';
+import 'package:youtube_downloader_flutter/utils/services/local_storage_service.dart';
 import 'package:youtube_downloader_flutter/utils/services/notification_service.dart';
 
 class DownloadController extends ChangeNotifier {
   final DownloadService _service = DownloadService();
   final NotificationService _notificationService = NotificationService();
   bool _isDownloading = false;
-  String? _outputDir;
   final List<String> _downloadedFilePaths = [];
-  final List<VideoInfoModel> _videoInfos = [];
+  final List<VideoInfoModel> _videoInfoListForDownload = [];
   final StreamController<LogModel> _logController =
       StreamController.broadcast();
   Stream<LogModel> get processLogs => _logController.stream;
+  String? _outputDir;
+  int? _maxWorkers;
+  final LocalStorageService _localStorageService = LocalStorageService();
+  DownloadType _downloadType = DownloadType.audio;
+  AudioFormat _audioFormat = AudioFormat.mp3;
+  VideoQuality _videoQuality = VideoQuality.fullHd;
+  List<VideoInfoModel> _playlistVideos = [];
 
   bool get isDownloading => _isDownloading;
-  String? get outputDir => _outputDir;
   List<String> get downloadedFilePaths => _downloadedFilePaths;
-  List<VideoInfoModel> get videoInfos => _videoInfos;
+  List<VideoInfoModel> get videoInfoListForDownload =>
+      _videoInfoListForDownload;
+  String? get outputDir => _outputDir;
+  int? get maxWorkers => _maxWorkers;
+  DownloadType get downloadType => _downloadType;
+  AudioFormat get audioFormat => _audioFormat;
+  VideoQuality get videoQuality => _videoQuality;
+  List<VideoInfoModel> get playlistVideos => _playlistVideos;
+
+  set downloadType(DownloadType value) {
+    _downloadType = value;
+    notifyListeners();
+  }
+
+  set audioFormat(AudioFormat value) {
+    _audioFormat = value;
+    notifyListeners();
+  }
+
+  set videoQuality(VideoQuality value) {
+    _videoQuality = value;
+    notifyListeners();
+  }
+
+  set playlistVideos(List<VideoInfoModel> value) {
+    _playlistVideos = value;
+    notifyListeners();
+  }
 
   DownloadController() {
     _initialize();
@@ -33,7 +65,6 @@ class DownloadController extends ChangeNotifier {
 
   Future<void> _initialize() async {
     await _service.initializeScript();
-    await _setDefaultDownloadDirectory();
 
     await _notificationService.initialize();
 
@@ -43,49 +74,19 @@ class DownloadController extends ChangeNotifier {
       logMessage('App launched from notification with payload: $payload');
       // Có thể thêm logic xử lý, ví dụ: mở file hoặc điều hướng
     }
-  }
 
-  Future<void> _setDefaultDownloadDirectory() async {
-    try {
-      if (Platform.isAndroid || Platform.isIOS) {
-        final status = await Permission.storage.request();
-        if (!status.isGranted) {
-          logMessage(
-              'Storage permission denied, please select a directory manually',
-              LogType.error);
-          await pickOutputDirectory();
-          if (_outputDir == null) throw Exception('No directory selected');
-          return;
-        }
-      }
-
-      Directory? downloadsDir = await getDownloadsDirectory();
-      _outputDir = downloadsDir != null
-          ? "${downloadsDir.path}/youtube-downloader"
-          : (await getExternalStorageDirectory())?.path;
-      Directory(_outputDir!).createSync(recursive: true);
-    } catch (e) {
-      _outputDir = null;
-      logMessage('Error setting default directory: $e', LogType.error);
-    }
+    _outputDir = await _localStorageService.getOutputDir();
+    _maxWorkers = await _localStorageService.getMaxWorkers();
     notifyListeners();
   }
 
-  Future<void> pickOutputDirectory() async {
-    String? selectedDir = await FilePicker.platform.getDirectoryPath();
-    if (selectedDir != null) {
-      _outputDir = selectedDir;
-      notifyListeners();
-    }
-  }
-
-  bool isValidUrl(String url) {
+  bool _isValidUrl(String url) {
     final regex =
         RegExp(r'^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.*$');
     return regex.hasMatch(url.trim());
   }
 
-  bool isPlaylistUrl(String url) {
+  bool _isPlaylistUrl(String url) {
     final uri = Uri.parse(url);
     return uri.queryParameters.containsKey('list');
   }
@@ -100,30 +101,21 @@ class DownloadController extends ChangeNotifier {
 
   void cancelDownload() {
     _service.killProcess();
-    _cleanupTempFiles();
+    _cleanupTempFiles(_outputDir);
     logMessage("Download cancelled", LogType.warning);
-    resetDownloadState();
     notifyListeners();
   }
 
-  void _cleanupTempFiles() {
-    if (_outputDir != null) {
-      Directory(_outputDir!).listSync().forEach((entity) {
-        if (entity.path.endsWith('.part')) entity.deleteSync();
-      });
-    }
+  void _cleanupTempFiles(String? outputDir) {
+    if (outputDir == null) return;
+    Directory(outputDir).listSync().forEach((entity) {
+      if (entity.path.endsWith('.part')) entity.deleteSync();
+    });
   }
 
-  Future<List<VideoInfoModel>?> fetchPlaylistVideos(String playlistUrl) async {
-    resetDownloadState();
-    _isDownloading = true;
+  Future<List<VideoInfoModel>?> _fetchPlaylistVideos(String playlistUrl) async {
     try {
-      final args = [
-        '--format=info-only',
-        '--output-dir',
-        _outputDir ?? '',
-        playlistUrl
-      ];
+      final args = ['--format=info-only', playlistUrl];
       String output = '';
       await _service.executeDownloadProcess(playlistUrl, args,
           onOutput: (data) {
@@ -140,7 +132,6 @@ class DownloadController extends ChangeNotifier {
       return [];
     } catch (e) {
       logMessage('Error fetching playlist: $e', LogType.error);
-      resetDownloadState();
       return null;
     } finally {
       _isDownloading = false;
@@ -148,16 +139,13 @@ class DownloadController extends ChangeNotifier {
     }
   }
 
-  Future<void> youtubeDownloader(
-    String youtubeUrl, {
-    DownloadType downloadType = DownloadType.audio,
-    AudioFormat audioFormat = AudioFormat.mp3,
-    VideoQuality videoQuality = VideoQuality.fullHd,
-    List<String>? playlistUrls,
+  Future<void> youtubeDownloader({
+    List<VideoInfoModel>? playlistVideos,
+    String? singleUrl,
   }) async {
-    resetDownloadState();
     _isDownloading = true;
-    final urlsToDownload = playlistUrls ?? [youtubeUrl];
+    final urlsToDownload =
+        playlistVideos?.map((v) => v.url!).toList() ?? [singleUrl ?? ''];
     int completedCount = 0; // THAY ĐỔI: Theo dõi số lượng hoàn tất
 
     try {
@@ -165,32 +153,48 @@ class DownloadController extends ChangeNotifier {
       final args = [
         ...urlsToDownload,
         '--format=${downloadType.name}',
-        if (downloadType == DownloadType.audio)
+        if (downloadType == DownloadType.audio) ...[
           '--audio-format=${audioFormat.name}',
-        if (downloadType == DownloadType.video)
-          '--quality=${videoQuality.name}',
-        '--output-dir',
-        _outputDir!,
+        ],
+        if (downloadType == DownloadType.video) ...[
+          '--quality=${videoQuality.quality}',
+        ],
+        if (_outputDir != null) ...[
+          '--output-dir',
+          _outputDir!,
+        ],
+        if (_maxWorkers != null) ...[
+          '--max-workers',
+          _maxWorkers.toString(),
+        ],
       ];
 
-      await _service.executeDownloadProcess(youtubeUrl, args, timeout: timeout,
-          onOutput: (data) {
+      await _service.executeDownloadProcess(singleUrl ?? '', args,
+          timeout: timeout, onOutput: (data) async {
         if (data.contains("START_INFO")) {
           final start = data.indexOf("START_INFO:") + "START_INFO:".length;
           final end = data.indexOf(":END_INFO");
           final jsonStr = data.substring(start, end).trim();
           final json = jsonDecode(jsonStr);
           final videoInfo = VideoInfoModel.fromJson(json);
-          final index =
-              _videoInfos.indexWhere((element) => element.id == videoInfo.id);
+          final index = _videoInfoListForDownload
+              .indexWhere((element) => element.id == videoInfo.id);
 
           if (index != -1) {
-            _videoInfos[index] = videoInfo.copyWith(
+            final updatedVideoInfo = _videoInfoListForDownload[index].copyWith(
               percent: videoInfo.percent,
               status: videoInfo.status,
+              outputPath: videoInfo.outputPath,
             );
+            _videoInfoListForDownload[index] = updatedVideoInfo;
+
+            if (videoInfo.status == VideoDownloadStatus.finished) {
+              await _saveDownloadedVideoToLocal(updatedVideoInfo);
+            }
           } else {
-            _videoInfos.add(videoInfo);
+            _videoInfoListForDownload.add(videoInfo.copyWith(
+              status: VideoDownloadStatus.downloading,
+            ));
           }
         }
         logMessage(data);
@@ -228,7 +232,91 @@ class DownloadController extends ChangeNotifier {
   void resetDownloadState() {
     _isDownloading = false;
     _downloadedFilePaths.clear();
-    _videoInfos.clear();
+    _videoInfoListForDownload.clear();
+    notifyListeners();
+  }
+
+  Future<void> _saveDownloadedVideoToLocal(VideoInfoModel video) async {
+    final existingIndex = _playlistVideos.indexWhere((v) => v.id == video.id);
+    if (existingIndex != -1) {
+      _playlistVideos[existingIndex] = video;
+    } else {
+      _playlistVideos.add(video);
+    }
+    await _localStorageService.saveHistory(_playlistVideos);
+    notifyListeners();
+  }
+
+  Future<void> _savePlaylistToLocal(List<VideoInfoModel> videos) async {
+    if (_playlistVideos.isEmpty) {
+      _playlistVideos = await _localStorageService.getHistory();
+    }
+
+    // Create a set of existing video IDs for quick lookup
+    final existingIds = _playlistVideos.map((v) => v.id).toSet();
+
+    for (var video in videos) {
+      if (existingIds.contains(video.id)) {
+        // Update the existing video
+        final index = _playlistVideos.indexWhere((v) => v.id == video.id);
+        _playlistVideos[index] = video;
+      } else {
+        // Add new video
+        _playlistVideos.add(video);
+        existingIds.add(video.id); // Update the set with new ID
+      }
+    }
+
+    await _localStorageService.saveHistory(_playlistVideos);
+    notifyListeners();
+  }
+
+  Future<void> getHistory() async {
+    final history = await _localStorageService.getHistory();
+    _playlistVideos = history;
+    notifyListeners();
+  }
+
+  Future<void> removeHistory(List<VideoInfoModel> videos) async {
+    if (_playlistVideos.isEmpty) {
+      _playlistVideos = await _localStorageService.getHistory();
+    }
+
+    for (var video in videos) {
+      _playlistVideos.removeWhere((v) => v.id == video.id);
+    }
+
+    await _localStorageService.saveHistory(_playlistVideos);
+    notifyListeners();
+  }
+
+  Future<void> handleUrlInput({
+    required String url,
+    required VoidCallback playlistDownloadCallBack,
+  }) async {
+    _isDownloading = true;
+    notifyListeners();
+    if (url.isEmpty || !_isValidUrl(url)) {
+      logMessage('Please enter a valid YouTube URL', LogType.error);
+      return;
+    }
+
+    if (_isPlaylistUrl(url)) {
+      final listVideos = await _fetchPlaylistVideos(url);
+      if (listVideos == null || listVideos.isEmpty) {
+        logMessage('Failed to fetch playlist videos', LogType.error);
+        return;
+      }
+
+      _playlistVideos = listVideos;
+
+      await _savePlaylistToLocal(listVideos);
+
+      playlistDownloadCallBack();
+    } else {
+      youtubeDownloader(singleUrl: url);
+    }
+
     notifyListeners();
   }
 

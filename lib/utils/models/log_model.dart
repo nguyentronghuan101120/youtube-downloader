@@ -1,17 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:youtube_downloader_flutter/utils/enums/log_type.dart';
 
 class LogModel {
   final String message;
   final LogType type;
 
   LogModel(this.message, this.type);
-}
-
-enum LogType {
-  info,
-  error,
-  warning,
-  success,
 }
 
 extension LogTypeExtension on LogType {
