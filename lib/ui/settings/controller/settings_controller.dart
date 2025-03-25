@@ -9,30 +9,57 @@ import 'package:youtube_downloader_flutter/utils/services/local_storage_service.
 class SettingsController extends ChangeNotifier {
   String? _outputDir;
   int? _maxWorkers = 4;
-  final List<int> _workerOptions = [1, 2, 4, 8, 16];
   final LocalStorageService _localStorageService = LocalStorageService();
+
+  // Biến tạm thời để theo dõi thay đổi trước khi submit
+  String? _tempOutputDir;
+  int? _tempMaxWorkers;
 
   String? get outputDir => _outputDir;
   int? get maxWorkers => _maxWorkers;
-  List<int> get workerOptions => _workerOptions;
+  String? get tempOutputDir => _tempOutputDir;
+  int? get tempMaxWorkers => _tempMaxWorkers;
+
+  // Getter động để tạo danh sách workerOptions dựa trên số lõi CPU
+  List<int> get workerOptions {
+    final int cpuCores = Platform.numberOfProcessors; // Lấy số lõi CPU của thiết bị
+    const int maxAllowedWorkers = 16; // Giới hạn tối đa hợp lý
+    final int maxWorkersForDevice = cpuCores.clamp(1, maxAllowedWorkers); // Giới hạn từ 1 đến maxAllowedWorkers
+
+    // Tạo danh sách các tùy chọn dựa trên số lõi CPU (ví dụ: 1, 2, 4, 8, ... đến maxWorkersForDevice)
+    List<int> options = [];
+    int value = 1;
+    while (value <= maxWorkersForDevice) {
+      options.add(value);
+      value *= 2; // Tăng theo cấp số nhân (1, 2, 4, 8, ...)
+    }
+    return options;
+  }
 
   SettingsController() {
     loadSettings();
   }
 
   Future<void> loadSettings() async {
-    _outputDir = await _localStorageService.getOutputDir();
-    _maxWorkers = await _localStorageService.getMaxWorkers();
+    try {
+      _outputDir = await _localStorageService.getOutputDir();
+      _maxWorkers = await _localStorageService.getMaxWorkers();
+      _tempOutputDir = _outputDir;
+      _tempMaxWorkers = _maxWorkers ?? 4;
 
-    if (_outputDir == null) {
-      await _setDefaultDownloadDirectory();
+      if (_outputDir == null) {
+        await _setDefaultDownloadDirectory();
+        _tempOutputDir = _outputDir;
+      }
+      if (_maxWorkers == null || !workerOptions.contains(_maxWorkers)) {
+        _maxWorkers = workerOptions.isNotEmpty ? workerOptions.last : 4; // Chọn giá trị lớn nhất hợp lệ
+        _tempMaxWorkers = _maxWorkers;
+        await _localStorageService.saveMaxWorkers(_maxWorkers!);
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading settings: $e');
     }
-
-    if (_maxWorkers == null) {
-      _maxWorkers = 4;
-      await _localStorageService.saveMaxWorkers(_maxWorkers!);
-    }
-    notifyListeners();
   }
 
   Future<void> _setDefaultDownloadDirectory() async {
@@ -59,15 +86,39 @@ class SettingsController extends ChangeNotifier {
   Future<void> pickOutputDirectory() async {
     String? selectedDir = await FilePicker.platform.getDirectoryPath();
     if (selectedDir != null) {
-      _outputDir = selectedDir;
-      await _localStorageService.saveOutputDir(_outputDir!);
+      _tempOutputDir = selectedDir;
       notifyListeners();
     }
   }
 
   void setMaxWorkers(int value) {
-    _maxWorkers = value;
-    _localStorageService.saveMaxWorkers(_maxWorkers!);
+    if (workerOptions.contains(value)) {
+      _tempMaxWorkers = value;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> submitChanges() async {
+    try {
+      if (_tempOutputDir != _outputDir) {
+        _outputDir = _tempOutputDir;
+        await _localStorageService.saveOutputDir(_outputDir!);
+      }
+      if (_tempMaxWorkers != _maxWorkers && workerOptions.contains(_tempMaxWorkers)) {
+        _maxWorkers = _tempMaxWorkers;
+        await _localStorageService.saveMaxWorkers(_maxWorkers!);
+      }
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('Error saving settings: $e');
+      return false;
+    }
+  }
+
+  void resetTempValues() {
+    _tempOutputDir = _outputDir;
+    _tempMaxWorkers = _maxWorkers;
     notifyListeners();
   }
 }

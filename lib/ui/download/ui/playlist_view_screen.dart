@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:youtube_downloader_flutter/ui/common/app_button.dart';
 import 'package:youtube_downloader_flutter/ui/download/controller/download_controller.dart';
 import 'package:youtube_downloader_flutter/ui/download/ui/video_card.dart';
 import 'package:youtube_downloader_flutter/utils/enums/select_status.dart';
@@ -39,6 +40,7 @@ class _PlaylistViewScreenState extends State<PlaylistViewScreen> {
       }
 
       _filteredVideos = _controller.playlistVideos;
+      setState(() {});
     });
   }
 
@@ -214,21 +216,13 @@ class _PlaylistViewScreenState extends State<PlaylistViewScreen> {
                     ),
                   ),
                 ),
-                ElevatedButton(
-                  onPressed: _selectedVideos.isEmpty
-                      ? null
-                      : () => _showConfirmationDialog('download', () {
-                            controller.youtubeDownloader(
-                                playlistVideos: _selectedVideos.toList());
-                            Navigator.pop(context);
-                          }),
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
-                  ),
-                  child: Text(
-                    'Submit (${_selectedVideos.length} selected)',
-                    style: const TextStyle(fontSize: 16),
-                  ),
+                AppButton(
+                  onPressed: () => _showConfirmationDialog('download', () {
+                    controller.youtubeDownloader(
+                        playlistVideos: _selectedVideos.toList());
+                    Navigator.pop(context);
+                  }),
+                  label: 'Submit (${_selectedVideos.length} selected)',
                 ),
               ],
             ),

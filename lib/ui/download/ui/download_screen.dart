@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:youtube_downloader_flutter/ui/common/app_button.dart';
+import 'package:youtube_downloader_flutter/ui/common/app_dropdown.dart';
 import 'package:youtube_downloader_flutter/ui/download/ui/playlist_view_screen.dart';
 import 'package:youtube_downloader_flutter/ui/download/controller/download_controller.dart';
 import 'package:youtube_downloader_flutter/ui/settings/ui/settings_screen.dart';
+import 'package:youtube_downloader_flutter/utils/enums/app_button_type.dart';
 import 'package:youtube_downloader_flutter/utils/enums/download_config.dart';
 import 'package:youtube_downloader_flutter/utils/enums/log_type.dart';
 import 'package:youtube_downloader_flutter/utils/enums/video_download_status.dart';
-import 'package:youtube_downloader_flutter/utils/models/video_info_model.dart';
 import 'package:youtube_downloader_flutter/utils/services/show_log_service.dart';
 import 'package:youtube_downloader_flutter/ui/download/ui/video_card.dart';
 
@@ -35,7 +37,12 @@ class _DownloadScreenState extends State<DownloadScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('YouTube Downloader'),
+            title: Text(
+              'YouTube Downloader',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
             backgroundColor: Theme.of(context).colorScheme.inversePrimary,
             actions: [
               IconButton(
@@ -73,11 +80,16 @@ class _DownloadScreenState extends State<DownloadScreen> {
               ),
               IconButton(
                 icon: const Icon(Icons.settings),
-                onPressed: () {
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const SettingsScreen()));
+                onPressed: () async {
+                  final bool? isUpdated = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const SettingsScreen(),
+                    ),
+                  );
+                  if (isUpdated ?? false) {
+                    controller.loadSettings();
+                  }
                 },
               ),
             ],
@@ -121,24 +133,23 @@ class _DownloadScreenState extends State<DownloadScreen> {
                     ? Flexible(
                         child: ListView.builder(
                           itemCount: controller.videoInfoListForDownload.length,
-                          itemBuilder: (context, index) => _buildVideoInfo(
-                              controller.videoInfoListForDownload[index]),
+                          itemBuilder: (context, index) => VideoCard(
+                            video: controller.videoInfoListForDownload[index],
+                          ),
                         ),
                       )
-                    : const Center(
-                        child: Text('No video to download'),
-                      ),
+                    : controller.isDownloading
+                        ? const Center(
+                            child: CircularProgressIndicator(),
+                          )
+                        : const Center(
+                            child: Text('No video to download'),
+                          ),
               ],
             ),
           ),
         );
       },
-    );
-  }
-
-  Widget _buildVideoInfo(VideoInfoModel videoInfo) {
-    return VideoCard(
-      video: videoInfo,
     );
   }
 
@@ -160,21 +171,40 @@ class _DownloadScreenState extends State<DownloadScreen> {
           ),
         ),
         const SizedBox(width: 8),
-        DropdownButton<DownloadType>(
+        AppDropdown<DownloadType>(
           value: controller.downloadType,
           items: DownloadType.values
               .map((type) =>
                   DropdownMenuItem(value: type, child: Text(type.name)))
               .toList(),
-          onChanged: controller.isDownloading
-              ? null
-              : (value) => setState(() => controller.downloadType = value!),
+          onChanged: (value) => controller.downloadType = value!,
+          isEnabled: !controller.isDownloading,
         ),
         const SizedBox(width: 8),
         if (controller.downloadType == DownloadType.video)
-          _buildVideoQualityDropdown(controller),
+          AppDropdown<VideoQuality>(
+            value: controller.videoQuality,
+            items: VideoQuality.values
+                .map((quality) => DropdownMenuItem(
+                      value: quality,
+                      child: Text(quality.quality),
+                    ))
+                .toList(),
+            onChanged: (value) => controller.videoQuality = value!,
+            isEnabled: !controller.isDownloading,
+          ),
         if (controller.downloadType == DownloadType.audio)
-          _buildAudioFormatDropdown(controller),
+          AppDropdown<AudioFormat>(
+            value: controller.audioFormat,
+            items: AudioFormat.values
+                .map((format) => DropdownMenuItem(
+                      value: format,
+                      child: Text(format.name),
+                    ))
+                .toList(),
+            onChanged: (value) => controller.audioFormat = value!,
+            isEnabled: !controller.isDownloading,
+          ),
       ],
     );
   }
@@ -186,69 +216,40 @@ class _DownloadScreenState extends State<DownloadScreen> {
         Text(
           "Output directory: ${outputDir ?? 'No output directory selected'}",
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: outputDir == null ? Colors.grey : Colors.black,
-          ),
+          style: Theme.of(context).textTheme.bodyLarge,
         ),
-        Text('Max workers: $maxWorkers'),
+        Text(
+          'Max workers: $maxWorkers',
+          style: Theme.of(context).textTheme.bodyLarge,
+        ),
       ],
     );
   }
 
-  Widget _buildVideoQualityDropdown(DownloadController controller) {
-    return DropdownButton<VideoQuality>(
-      value: controller.videoQuality,
-      items: VideoQuality.values
-          .map((quality) => DropdownMenuItem(
-                value: quality,
-                child: Text(quality.name),
-              ))
-          .toList(),
-      onChanged: controller.isDownloading
-          ? null
-          : (value) => setState(() => controller.videoQuality = value!),
-    );
-  }
-
-  Widget _buildAudioFormatDropdown(DownloadController controller) {
-    return DropdownButton<AudioFormat>(
-      value: controller.audioFormat,
-      items: AudioFormat.values
-          .map((format) => DropdownMenuItem(
-                value: format,
-                child: Text(format.name),
-              ))
-          .toList(),
-      onChanged: controller.isDownloading
-          ? null
-          : (value) => setState(() => controller.audioFormat = value!),
-    );
-  }
-
   Widget _buildDownloadButton(DownloadController controller) {
-    return Row(
+    return Column(
       children: [
-        Expanded(
-          child: ElevatedButton(
-            onPressed: controller.isDownloading
-                ? null
-                : () async {
-                    await controller.handleUrlInput(
-                        url: _urlController.text.trim(),
-                        playlistDownloadCallBack: () {
-                          _handlePlaylistDownload();
-                        });
-                  },
-            child: controller.isDownloading
-                ? const CircularProgressIndicator(color: Colors.white)
-                : const Text('Start Download'),
-          ),
-        ),
         if (controller.isDownloading) ...[
-          const SizedBox(width: 8),
-          ElevatedButton(
+          IconAppButton(
             onPressed: () => controller.cancelDownload(),
-            child: const Icon(Icons.cancel),
+            icon: Icons.cancel,
+            type: AppButtonType.danger,
+          ),
+        ] else ...[
+          AppButton(
+            onPressed: () async {
+              if (controller.isDownloading) {
+                controller.cancelDownload();
+              } else {
+                await controller.handleUrlInput(
+                    url: _urlController.text.trim(),
+                    playlistDownloadCallBack: () {
+                      _handlePlaylistDownload();
+                    });
+              }
+            },
+            label:
+                controller.isDownloading ? 'Downloading...' : 'Start Download',
           ),
         ],
       ],

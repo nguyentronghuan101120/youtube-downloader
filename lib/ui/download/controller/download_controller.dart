@@ -65,19 +65,35 @@ class DownloadController extends ChangeNotifier {
 
   Future<void> _initialize() async {
     await _service.initializeScript();
-
     await _notificationService.initialize();
 
     final launchDetails = await _notificationService.getLaunchDetails();
     if (launchDetails != null && launchDetails.didNotificationLaunchApp) {
       final payload = launchDetails.notificationResponse?.payload;
       logMessage('App launched from notification with payload: $payload');
-      // Có thể thêm logic xử lý, ví dụ: mở file hoặc điều hướng
     }
 
+    // Tải cài đặt ban đầu
+    await loadSettings();
+    notifyListeners();
+  }
+
+  // Tải cài đặt từ LocalStorageService
+  Future<void> loadSettings() async {
     _outputDir = await _localStorageService.getOutputDir();
     _maxWorkers = await _localStorageService.getMaxWorkers();
     notifyListeners();
+  }
+
+  // Phương thức để cập nhật cài đặt từ SettingsController
+  void updateSettings(String? newOutputDir, int? newMaxWorkers) {
+    if (newOutputDir != _outputDir || newMaxWorkers != _maxWorkers) {
+      _outputDir = newOutputDir;
+      _maxWorkers = newMaxWorkers;
+      logMessage(
+          'Settings updated: OutputDir=$_outputDir, MaxWorkers=$_maxWorkers');
+      notifyListeners();
+    }
   }
 
   bool _isValidUrl(String url) {
@@ -103,6 +119,7 @@ class DownloadController extends ChangeNotifier {
     _service.killProcess();
     _cleanupTempFiles(_outputDir);
     logMessage("Download cancelled", LogType.warning);
+    _isDownloading = false;
     notifyListeners();
   }
 
@@ -143,10 +160,11 @@ class DownloadController extends ChangeNotifier {
     List<VideoInfoModel>? playlistVideos,
     String? singleUrl,
   }) async {
+    resetDownloadState();
     _isDownloading = true;
     final urlsToDownload =
         playlistVideos?.map((v) => v.url!).toList() ?? [singleUrl ?? ''];
-    int completedCount = 0; // THAY ĐỔI: Theo dõi số lượng hoàn tất
+    int completedCount = 0;
 
     try {
       final timeout = Duration(minutes: 5 * urlsToDownload.length);
@@ -202,9 +220,8 @@ class DownloadController extends ChangeNotifier {
         if (data.contains("Download completed:")) {
           final path = data.split("Download completed: ").last.trim();
           _downloadedFilePaths.add(path);
-          completedCount++; // THAY ĐỔI: Tăng số lượng hoàn tất
+          completedCount++;
 
-          // THAY ĐỔI: Xử lý thông báo dựa trên số lượng URL
           if (urlsToDownload.length == 1) {
             _notificationService.showNotification(
               id: _downloadedFilePaths.length,
@@ -213,7 +230,7 @@ class DownloadController extends ChangeNotifier {
             );
           } else if (completedCount == urlsToDownload.length) {
             _notificationService.showNotification(
-              id: 0, // ID cố định cho thông báo tổng hợp
+              id: 0,
               title: 'Playlist Download Completed',
               body: '${urlsToDownload.length} files saved at: $_outputDir',
             );
@@ -252,18 +269,14 @@ class DownloadController extends ChangeNotifier {
       _playlistVideos = await _localStorageService.getHistory();
     }
 
-    // Create a set of existing video IDs for quick lookup
     final existingIds = _playlistVideos.map((v) => v.id).toSet();
-
     for (var video in videos) {
       if (existingIds.contains(video.id)) {
-        // Update the existing video
         final index = _playlistVideos.indexWhere((v) => v.id == video.id);
         _playlistVideos[index] = video;
       } else {
-        // Add new video
         _playlistVideos.add(video);
-        existingIds.add(video.id); // Update the set with new ID
+        existingIds.add(video.id);
       }
     }
 
@@ -298,6 +311,8 @@ class DownloadController extends ChangeNotifier {
     notifyListeners();
     if (url.isEmpty || !_isValidUrl(url)) {
       logMessage('Please enter a valid YouTube URL', LogType.error);
+      _isDownloading = false;
+      notifyListeners();
       return;
     }
 
@@ -305,13 +320,13 @@ class DownloadController extends ChangeNotifier {
       final listVideos = await _fetchPlaylistVideos(url);
       if (listVideos == null || listVideos.isEmpty) {
         logMessage('Failed to fetch playlist videos', LogType.error);
+        _isDownloading = false;
+        notifyListeners();
         return;
       }
 
       _playlistVideos = listVideos;
-
       await _savePlaylistToLocal(listVideos);
-
       playlistDownloadCallBack();
     } else {
       youtubeDownloader(singleUrl: url);
