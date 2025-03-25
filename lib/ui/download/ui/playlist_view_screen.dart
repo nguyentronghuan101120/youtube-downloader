@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:youtube_downloader_flutter/ui/download/controller/download_controller.dart';
 import 'package:youtube_downloader_flutter/ui/download/ui/video_card.dart';
 import 'package:youtube_downloader_flutter/utils/enums/select_status.dart';
@@ -34,14 +33,12 @@ class _PlaylistViewScreenState extends State<PlaylistViewScreen> {
     super.initState();
     _controller = Provider.of<DownloadController>(context, listen: false);
 
-    if (widget.isHistoryView) {
-      _controller.getHistory();
-    }
-    _filteredVideos = _controller.playlistVideos;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (widget.isHistoryView) {
+        await _controller.getHistory();
+      }
 
-    _searchController.addListener(() {
-      _debounce?.cancel();
-      _debounce = Timer(const Duration(milliseconds: 300), _filterVideos);
+      _filteredVideos = _controller.playlistVideos;
     });
   }
 
@@ -57,7 +54,9 @@ class _PlaylistViewScreenState extends State<PlaylistViewScreen> {
     final controller = Provider.of<DownloadController>(context, listen: false);
     setState(() {
       _filteredVideos = controller.playlistVideos
-          .where((video) => video.title?.toLowerCase().contains(query) ?? false)
+          .where((video) =>
+              (video.title?.toLowerCase().contains(query) ?? false) ||
+              (video.id?.toLowerCase().contains(query) ?? false))
           .toList();
       _updateSelectionState();
     });
@@ -136,7 +135,6 @@ class _PlaylistViewScreenState extends State<PlaylistViewScreen> {
   Widget build(BuildContext context) {
     return Consumer<DownloadController>(
       builder: (context, controller, child) {
-        _filteredVideos = controller.playlistVideos;
         return Scaffold(
           appBar: AppBar(
             title: Text(widget.isHistoryView
@@ -173,7 +171,17 @@ class _PlaylistViewScreenState extends State<PlaylistViewScreen> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8.0),
                     ),
+                    suffixIcon: IconButton(
+                      onPressed: () {
+                        _searchController.clear();
+                        _filterVideos();
+                      },
+                      icon: const Icon(Icons.clear),
+                    ),
                   ),
+                  onChanged: (value) {
+                    _filterVideos();
+                  },
                 ),
                 const SizedBox(height: 16),
                 Row(

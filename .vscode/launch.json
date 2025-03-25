@@ -27,9 +27,9 @@
             "request": "launch",
             "program": "${workspaceFolder}/assets/main.py",
             "args": [
-                "https://www.youtube.com/watch?v=UqyT8IEBkvY",
-                "--format=audio",
-                "--audio-format=mp3",
+                "https://www.youtube.com/watch?v=ZQlU_OlgXO4",
+                "--format=video",
+                "--quality=1080p",
                 // "--output-dir=DEFAULT_OUTPUT_DIR"
             ],
             "console": "integratedTerminal"
@@ -41,7 +41,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/assets/main.py",
             "args": [
-                "https://www.youtube.com/watch?v=mBRbVdSou0Q&list=PLmH_0jAzY3ViW8AggBVyw3wF3X387GABH&index=1",
+                "https://www.youtube.com/playlist?list=UUq-Fj5jknLsUf-MWSy4_brA",
                 "--format=info-only",
             ],
             "console": "integratedTerminal"

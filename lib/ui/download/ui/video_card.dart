@@ -48,36 +48,54 @@ class VideoCard extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
+                          SelectableText(
                             video.title ?? 'Untitled',
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                            scrollPhysics: const ClampingScrollPhysics(),
+                            showCursor: true,
+                          ),
+                          const SizedBox(height: 8),
+                          SelectableText(
+                            "ID: ${video.id}",
+                            style: const TextStyle(fontSize: 14),
+                            scrollPhysics: const ClampingScrollPhysics(),
+                            showCursor: true,
                           ),
                           const SizedBox(height: 4),
-                          Text(
-                              "Duration: ${_formatDuration(video.duration ?? 0)}"),
+                          SelectableText(
+                            "Duration: ${_formatDuration(video.duration ?? 0)}",
+                            scrollPhysics: const ClampingScrollPhysics(),
+                            showCursor: true,
+                          ),
                           if (video.status != null)
-                            Text(
+                            SelectableText(
                               "Status: ${video.status!.title}",
                               style: TextStyle(
                                 color: video.status!.color,
                               ),
+                              scrollPhysics: const ClampingScrollPhysics(),
+                              showCursor: true,
                             ),
                           if (video.outputPath != null)
-                            Text("Downloaded to: ${video.outputPath}"),
+                            SelectableText(
+                              "Downloaded to: ${video.outputPath}",
+                              scrollPhysics: const ClampingScrollPhysics(),
+                              showCursor: true,
+                            ),
                         ],
                       ),
                     ),
                     if (video.status!.isDownloading)
-                      Text(
+                      SelectableText(
                         "${video.percent ?? 0}%",
                         style: const TextStyle(fontSize: 14),
                         maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                        scrollPhysics: const ClampingScrollPhysics(),
+                        showCursor: true,
                       ),
                     if (video.status != null) video.status!.icon,
                   ],

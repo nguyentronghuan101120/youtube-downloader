@@ -20,7 +20,7 @@ class VideoInfoModel {
   @JsonKey(name: 'url')
   final String? url;
 
-  @JsonKey(name: 'status', defaultValue: VideoDownloadStatus.downloading)
+  @JsonKey(name: 'status', defaultValue: VideoDownloadStatus.notDownloaded)
   final VideoDownloadStatus? status;
 
   @JsonKey(name: 'output_path')
@@ -28,8 +28,6 @@ class VideoInfoModel {
 
   @JsonKey(
     name: 'percent',
-    fromJson: _percentFromJson, // Hàm tùy chỉnh để parse percent
-    toJson: _percentToJson, // Hàm tùy chỉnh để serialize percent
   )
   final double? percent;
 
@@ -69,21 +67,5 @@ class VideoInfoModel {
       percent: percent ?? this.percent,
       outputPath: outputPath ?? this.outputPath,
     );
-  }
-
-  // Hàm tùy chỉnh để parse percent từ JSON
-  static double? _percentFromJson(dynamic value) {
-    if (value == null) return null;
-    if (value is double) return value;
-    if (value is int) return value.toDouble();
-    if (value is String) {
-      return double.tryParse(value.replaceAll("%", ""));
-    }
-    return null;
-  }
-
-  // Hàm tùy chỉnh để serialize percent sang JSON
-  static dynamic _percentToJson(double? value) {
-    return value; // Giữ nguyên giá trị double, không thêm "%" khi serialize
   }
 }

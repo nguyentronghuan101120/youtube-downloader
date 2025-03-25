@@ -5,6 +5,7 @@ import 'package:youtube_downloader_flutter/ui/download/controller/download_contr
 import 'package:youtube_downloader_flutter/ui/settings/ui/settings_screen.dart';
 import 'package:youtube_downloader_flutter/utils/enums/download_config.dart';
 import 'package:youtube_downloader_flutter/utils/enums/log_type.dart';
+import 'package:youtube_downloader_flutter/utils/enums/video_download_status.dart';
 import 'package:youtube_downloader_flutter/utils/models/video_info_model.dart';
 import 'package:youtube_downloader_flutter/utils/services/show_log_service.dart';
 import 'package:youtube_downloader_flutter/ui/download/ui/video_card.dart';
@@ -95,11 +96,27 @@ class _DownloadScreenState extends State<DownloadScreen> {
                 const SizedBox(height: 16),
                 _buildDownloadButton(controller),
                 const SizedBox(height: 16),
-                if (controller.isDownloading)
-                  Text(
-                    'Downloading: ${controller.videoInfoListForDownload.length} videos',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    if (controller.isDownloading)
+                      Text(
+                        'Downloading: ${controller.videoInfoListForDownload.where((video) => video.status?.isDownloading ?? false).length} videos',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: VideoDownloadStatus.downloading.color),
+                      ),
+                    if (controller.videoInfoListForDownload
+                        .where((video) => video.status?.isFinished ?? false)
+                        .isNotEmpty)
+                      Text(
+                        'Download successful: ${controller.videoInfoListForDownload.where((video) => video.status?.isFinished ?? false).length} videos',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: VideoDownloadStatus.finished.color),
+                      ),
+                  ],
+                ),
                 (controller.videoInfoListForDownload.isNotEmpty)
                     ? Flexible(
                         child: ListView.builder(

@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from yt_dlp.utils import sanitize_filename
 from urllib.parse import urlparse, parse_qs
 import sys
+import re
 
 # Config
 CONFIG = {
@@ -54,7 +55,6 @@ def get_video_info(video_url):
         playlist_videos = [
             {
                 "id": entry.get("id", ""),
-                "status": "not_downloaded",
                 "title": entry.get("title", "Untitled"),
                 "url": entry["url"],
                 "duration": entry.get("duration", 0),
@@ -69,7 +69,6 @@ def get_video_info(video_url):
         video_info = {
             "id": info.get("id", ""),
             "title": info.get("title", "Untitled"),
-            "status": "not_downloaded",
             "duration": info.get("duration", 0),
             "thumbnail": info.get("thumbnails", [{}])[0].get("url", "") if info.get("thumbnails") and len(info.get("thumbnails")) > 0 else "",
             "url": video_url
@@ -77,15 +76,51 @@ def get_video_info(video_url):
         log_info(f"START_INFO:{json.dumps(video_info)}:END_INFO")
         return video_info
 
-def progress_hook(d):
-    progress_data = {
-        "id": d["info_dict"]["id"],
-        "status": d["status"] ,
-        "percent": d["_percent_str"].replace("%", ""),
-        "total_bytes": d.get("total_bytes", "unknown")
-    }
+# Dictionary để theo dõi tiến trình của từng video
+progress_tracker = {}
 
-    log_info(f"START_INFO:{json.dumps(progress_data)}:END_INFO")
+def progress_hook(d):
+    video_id = d["info_dict"]["id"]
+    status = d["status"]
+
+    # Làm sạch percent string và chuyển thành float
+    percent_str = re.sub(r'\x1b\[[0-9;]*m', '', d["_percent_str"]).strip()  # Loại bỏ mã màu ANSI
+    try:
+        percent = float(percent_str.replace('%', ''))
+    except ValueError:
+        percent = 0.0  # Giá trị mặc định nếu không thể phân tích
+
+    # Khởi tạo tracker cho video nếu chưa có
+    if video_id not in progress_tracker:
+        progress_tracker[video_id] = {"last_percent": 0.0, "reported_finished": False}
+
+    # Lấy giá trị phần trăm cao nhất đã ghi nhận
+    last_percent = progress_tracker[video_id]["last_percent"]
+
+    # Cập nhật phần trăm nếu lớn hơn hoặc bằng giá trị trước đó, hoặc nếu là trạng thái hoàn tất
+    if percent >= last_percent or status == "finished":
+        progress_tracker[video_id]["last_percent"] = max(last_percent, percent)
+
+        # Nếu trạng thái là "finished" hoặc percent đạt 100%
+        if status == "finished" or percent >= 100.0:
+            if not progress_tracker[video_id]["reported_finished"]:
+                progress_tracker[video_id]["reported_finished"] = True
+                progress_data = {
+                    "id": video_id,
+                    "status": "finished",
+                    "percent": 100.0,  # Đảm bảo báo cáo 100% khi hoàn tất
+                    "total_bytes": d.get("total_bytes", "unknown")
+                }
+                log_info(f"START_INFO:{json.dumps(progress_data)}:END_INFO")
+        # Báo cáo tiến trình nếu đang tải xuống
+        elif status == "downloading" and percent > last_percent:
+            progress_data = {
+                "id": video_id,
+                "status": "downloading",
+                "percent": float(f"{percent:.1f}"),
+                "total_bytes": d.get("total_bytes", "unknown")
+            }
+            log_info(f"START_INFO:{json.dumps(progress_data)}:END_INFO")
 
 def get_download_options(format_type, audio_format, video_quality, output_template):
     if format_type not in CONFIG["supported_formats"]:
@@ -126,6 +161,7 @@ def download_video(video_url, format_type="video", audio_format=CONFIG["default_
         if not info:
             raise VideoDownloadException("Cannot get video information.")
 
+        video_id = info.get("id", "")
         video_title = sanitize_filename(info.get("title", "video"))
         output_template = os.path.join(output_dir, f"{video_title}")
         file_extension = "mkv" if format_type == "video" else audio_format
@@ -133,7 +169,7 @@ def download_video(video_url, format_type="video", audio_format=CONFIG["default_
 
         if os.path.exists(expected_output_path):
             video_info = {
-                "id": info.get("id", ""),
+                "id": video_id,
                 "status": "finished",
                 "output_path": expected_output_path
             }
@@ -143,6 +179,15 @@ def download_video(video_url, format_type="video", audio_format=CONFIG["default_
         ydl_opts = get_download_options(format_type, audio_format, video_quality, output_template)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
+
+        # Báo cáo hoàn tất sau khi tải xuống thành công
+        video_info = {
+            "id": video_id,
+            "status": "finished",
+            "percent": 100.0,
+            "output_path": expected_output_path
+        }
+        log_info(f"START_INFO:{json.dumps(video_info)}:END_INFO")
         log_info(f"Download completed: {expected_output_path}")
     except Exception as e:
         log_error(f"Error downloading {video_url}: {str(e)}")
