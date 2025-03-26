@@ -138,6 +138,14 @@ class DownloadController extends ChangeNotifier {
           onOutput: (data) {
         output += data;
       });
+
+      final errorMatch =
+          RegExp(r'START_ERROR:(.+):END_ERROR').firstMatch(output);
+      if (errorMatch != null) {
+        final errorStr = errorMatch.group(1)!;
+        throw Exception(errorStr);
+      }
+
       final jsonMatch = RegExp(r'START_INFO:(.+):END_INFO').firstMatch(output);
       if (jsonMatch != null) {
         final jsonStr = jsonMatch.group(1)!;
@@ -319,7 +327,6 @@ class DownloadController extends ChangeNotifier {
     if (_isPlaylistUrl(url)) {
       final listVideos = await _fetchPlaylistVideos(url);
       if (listVideos == null || listVideos.isEmpty) {
-        logMessage('Failed to fetch playlist videos', LogType.error);
         _isDownloading = false;
         notifyListeners();
         return;
@@ -333,6 +340,20 @@ class DownloadController extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  bool submitValidate(String url) {
+    if (url.isEmpty || !_isValidUrl(url)) {
+      logMessage('Please enter a valid YouTube URL', LogType.error);
+      return false;
+    }
+
+    if (_outputDir == null) {
+      logMessage('Please select a download directory', LogType.error);
+      return false;
+    }
+
+    return true;
   }
 
   @override

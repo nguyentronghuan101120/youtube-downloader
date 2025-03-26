@@ -1,7 +1,21 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://chaquo.com/maven" } // Thêm repository cho chaquopy
+    }
+    dependencies {
+        classpath "com.android.tools.build:gradle:8.1.0" // Đảm bảo phiên bản mới nhất
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0"
+        classpath "com.chaquo.python:gradle:15.0.1" // Phiên bản chaquopy mới nhất
+    }
+}
+
 allprojects {
     repositories {
         google()
         mavenCentral()
+        maven { url "https://chaquo.com/maven" } // Thêm vào allprojects
     }
 }
 
@@ -13,10 +27,14 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
-tasks.register("clean", Delete) {
-    delete rootProject.buildDir
+subprojects {
+    tasks.withType(JavaCompile).configureEach {
+        javaCompiler = javaToolchains.compilerFor {
+            languageVersion = JavaLanguageVersion.of(17)
+        }
+    }
 }
 
-dependencies {
-    classpath 'com.android.tools.build:gradle:8.6.0'
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
 }

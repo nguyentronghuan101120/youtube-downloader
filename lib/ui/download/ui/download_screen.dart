@@ -219,7 +219,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
           style: Theme.of(context).textTheme.bodyLarge,
         ),
         Text(
-          'Max workers: $maxWorkers',
+          'Max workers: ${maxWorkers ?? 'No workers'}',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
       ],
@@ -238,6 +238,12 @@ class _DownloadScreenState extends State<DownloadScreen> {
         ] else ...[
           AppButton(
             onPressed: () async {
+              final isValid =
+                  controller.submitValidate(_urlController.text.trim());
+              if (!isValid) {
+                return;
+              }
+
               if (controller.isDownloading) {
                 controller.cancelDownload();
               } else {

@@ -28,9 +28,9 @@ class LocalStorageService {
     await prefs.setInt(LocalStorageKey.maxWorkers.name, maxWorkers);
   }
 
-  Future<int> getMaxWorkers({int defaultValue = 4}) async {
+  Future<int?> getMaxWorkers() async {
     final prefs = await _getPrefs();
-    return prefs.getInt(LocalStorageKey.maxWorkers.name) ?? defaultValue;
+    return prefs.getInt(LocalStorageKey.maxWorkers.name);
   }
 
   Future<void> saveHistory(List<VideoInfoModel> history) async {

@@ -23,7 +23,7 @@ def log_info(message):
     sys.stdout.flush()
 
 def log_error(message):
-    sys.stderr.write(f"[START_ERROR]: {message} [END_ERROR]\n")
+    sys.stderr.write(f"ERROR: {message}\n")
     sys.stderr.flush()
 
 class VideoDownloadException(Exception):
