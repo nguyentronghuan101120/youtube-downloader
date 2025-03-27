@@ -3,59 +3,23 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:chaquopy/chaquopy.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart'; // Import for debugPrint
 import 'package:path_provider/path_provider.dart';
 
 class DownloadService {
   late String _scriptPath;
-  late String _checkScriptPath;
   Process? _process;
 
   Future<void> initializeScript() async {
-    final dir = await getApplicationDocumentsDirectory();
-
-    // Sao chép và cấu hình check_and_install_libs.py
-    final checkByteData =
-        await rootBundle.load('assets/check_and_install_libs.py');
-    final checkFile = File('${dir.path}/check_and_install_libs.py');
-    if (!await checkFile.exists() ||
-        await checkFile.length() != checkByteData.lengthInBytes) {
-      await checkFile.writeAsBytes(checkByteData.buffer.asUint8List(),
-          flush: true);
-    }
-    _checkScriptPath = checkFile.path;
-
-    // Sao chép và cấu hình main.py
     final byteData = await rootBundle.load('assets/main.py');
+    final dir = await getApplicationDocumentsDirectory();
     final file = File('${dir.path}/main.py');
     if (!await file.exists() || await file.length() != byteData.lengthInBytes) {
       await file.writeAsBytes(byteData.buffer.asUint8List(), flush: true);
     }
     _scriptPath = file.path;
-
-    // Đảm bảo script có quyền thực thi trên Linux hoặc macOS
     if (Platform.isLinux || Platform.isMacOS) {
-      await Process.run('chmod', ['+x', _checkScriptPath]);
       await Process.run('chmod', ['+x', _scriptPath]);
-      // Chạy script kiểm tra và cài đặt thư viện trên macOS
-      await _checkAndInstallLibraries();
     }
-  }
-
-  Future<void> _checkAndInstallLibraries() async {
-    debugPrint("Checking and installing required libraries...");
-    final process = await Process.start('python3', [_checkScriptPath]);
-    process.stdout.transform(utf8.decoder).listen((data) {
-      debugPrint(data); // In log ra console để debug
-    });
-    process.stderr.transform(utf8.decoder).listen((data) {
-      debugPrint('[ERROR] $data');
-    });
-    final exitCode = await process.exitCode;
-    if (exitCode != 0) {
-      throw Exception("Failed to check and install libraries.");
-    }
-    debugPrint("Library check completed.");
   }
 
   Future<void> executeDownloadProcess(
@@ -87,9 +51,9 @@ print(sys.stdout.read())
           if (result['stderr'] != null && result['stderr'].isNotEmpty) {
             onOutput('[ERROR] ${result['stderr']}');
           }
-        } else if (Platform.isMacOS || Platform.isLinux) {
-          // Dùng Process.start trên macOS hoặc Linux
-          _process = await Process.start('python3', [_scriptPath, ...args]);
+        } else if (Platform.isMacOS) {
+          // Dùng Process.start trên macOS
+          _process = await Process.start('python', [_scriptPath, ...args]);
           _process!.stdout.transform(utf8.decoder).listen(onOutput);
           _process!.stderr.transform(utf8.decoder).listen((data) {
             onOutput('[ERROR] $data');

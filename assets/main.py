@@ -1,12 +1,22 @@
 import json
 import os
-import yt_dlp
+import subprocess
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-from yt_dlp.utils import sanitize_filename
 from urllib.parse import urlparse, parse_qs
 import sys
 import re
+
+try:
+    import yt_dlp
+except ImportError:
+    print("yt_dlp not found. Installing it now...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "yt-dlp"])
+
+import yt_dlp
+from yt_dlp.utils import sanitize_filename
+    
+
 
 # Config
 CONFIG = {
