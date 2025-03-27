@@ -59,11 +59,9 @@ class SettingsController extends ChangeNotifier {
 
   Future<void> pickOutputDirectory() async {
     String? selectedDir = await FilePicker.platform.getDirectoryPath();
-    if (selectedDir != null) {
-      _tempOutputDir = selectedDir;
-      notifyListeners();
+    _tempOutputDir = selectedDir;
+    notifyListeners();
     }
-  }
 
   void setMaxWorkers(int value) {
     if (workerOptions.contains(value)) {

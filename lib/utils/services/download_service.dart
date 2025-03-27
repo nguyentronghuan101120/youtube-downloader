@@ -22,6 +22,33 @@ class DownloadService {
     }
   }
 
+  Future<String> _getPythonInterpreter() async {
+    for (var pythonCmd in ['python', 'python3']) {
+      try {
+        final result = await Process.run(pythonCmd, ['--version']);
+        if (result.exitCode == 0) {
+          return pythonCmd;
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+
+    // Python is missing, attempt installation (Mac/Linux only)
+    if (Platform.isMacOS || Platform.isLinux) {
+      try {
+        await Process.run('brew', ['install', 'python3']);
+        return 'python3';
+      } catch (e) {
+        throw Exception(
+            'Failed to install Python. Please install it manually.');
+      }
+    }
+
+    throw Exception(
+        'Python is not installed and cannot be automatically set up.');
+  }
+
   Future<void> executeDownloadProcess(
     String url,
     List<String> args, {
@@ -32,7 +59,6 @@ class DownloadService {
     for (int attempt = 1; attempt <= retries; attempt++) {
       try {
         if (Platform.isAndroid) {
-          // Dùng chaquopy trên Android
           final result = await Chaquopy.executeCode('''
 import sys
 from io import StringIO
@@ -51,9 +77,9 @@ print(sys.stdout.read())
           if (result['stderr'] != null && result['stderr'].isNotEmpty) {
             onOutput('[ERROR] ${result['stderr']}');
           }
-        } else if (Platform.isMacOS) {
-          // Dùng Process.start trên macOS
-          _process = await Process.start('python', [_scriptPath, ...args]);
+        } else if (Platform.isMacOS || Platform.isLinux) {
+          final pythonCmd = await _getPythonInterpreter();
+          _process = await Process.start(pythonCmd, [_scriptPath, ...args]);
           _process!.stdout.transform(utf8.decoder).listen(onOutput);
           _process!.stderr.transform(utf8.decoder).listen((data) {
             onOutput('[ERROR] $data');
@@ -67,7 +93,7 @@ print(sys.stdout.read())
           throw UnsupportedError(
               'Platform not supported: ${Platform.operatingSystem}');
         }
-        break; // Thành công thì thoát vòng lặp
+        break;
       } catch (e) {
         onOutput(
             '[ERROR] Failed to execute Python script on attempt $attempt: $e');

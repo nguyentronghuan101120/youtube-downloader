@@ -9,12 +9,12 @@ import re
 
 try:
     import yt_dlp
+    from yt_dlp.utils import sanitize_filename
 except ImportError:
     print("yt_dlp not found. Installing it now...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "yt-dlp"])
-
-import yt_dlp
-from yt_dlp.utils import sanitize_filename
+    import yt_dlp
+    from yt_dlp.utils import sanitize_filename
     
 
 

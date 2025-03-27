@@ -1,3 +1,7 @@
+i:
+	fvm flutter pub get
+	fvm flutter pub run build_runner build
+
 analyze:
 	fvm flutter analyze
 
