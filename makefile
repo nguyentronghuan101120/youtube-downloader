@@ -32,6 +32,7 @@ c:
 	rm -rf ~/Library/Developer/Xcode/DerivedData/ | true
 	rm pubspec.lock | true
 	fvm flutter clean
+	flutter pub cache clean
 	fvm flutter pub get
 	unameOut=$$(uname -s); \
 	if [ "$$unameOut" = "Darwin" ]; then \
