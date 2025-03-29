@@ -75,14 +75,14 @@ print(sys.stdout.read())
             onOutput(output);
           }
           if (result['stderr'] != null && result['stderr'].isNotEmpty) {
-            onOutput('[ERROR] ${result['stderr']}');
+            onOutput('START_ERROR: ${result['stderr']} :END_ERROR');
           }
         } else if (Platform.isMacOS || Platform.isLinux) {
           final pythonCmd = await _getPythonInterpreter();
           _process = await Process.start(pythonCmd, [_scriptPath, ...args]);
           _process!.stdout.transform(utf8.decoder).listen(onOutput);
           _process!.stderr.transform(utf8.decoder).listen((data) {
-            onOutput('[ERROR] $data');
+            onOutput('START_ERROR: $data :END_ERROR');
           });
           await _process!.exitCode.timeout(timeout, onTimeout: () {
             _process!.kill();

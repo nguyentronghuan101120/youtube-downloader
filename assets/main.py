@@ -15,8 +15,6 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "yt-dlp"])
     import yt_dlp
     from yt_dlp.utils import sanitize_filename
-    
-
 
 # Config
 CONFIG = {
