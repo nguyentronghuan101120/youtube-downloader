@@ -1,6 +1,12 @@
 name: macOS Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version number (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
   push:
     tags:
       - "v*"
@@ -49,9 +55,10 @@ jobs:
             build/macos/Build/Products/Release/youtube_downloader_flutter.app
           draft: false
           prerelease: false
-          name: Release ${{ github.ref_name }}
+          name: Release ${{ github.event.inputs.version || github.ref_name }}
+          tag_name: ${{ github.event.inputs.version || github.ref_name }}
           body: |
-            YouTube Downloader ${{ github.ref_name }}
+            YouTube Downloader ${{ github.event.inputs.version || github.ref_name }}
 
             ### Downloads
             - macOS DMG Installer
