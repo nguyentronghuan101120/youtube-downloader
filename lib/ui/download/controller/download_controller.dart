@@ -10,6 +10,7 @@ import 'package:youtube_downloader_flutter/utils/models/video_info_model.dart';
 import 'package:youtube_downloader_flutter/utils/services/download_service.dart';
 import 'package:youtube_downloader_flutter/utils/services/local_storage_service.dart';
 import 'package:youtube_downloader_flutter/utils/services/notification_service.dart';
+import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 
 class DownloadController extends ChangeNotifier {
   final DownloadService _service = DownloadService();
@@ -97,14 +98,21 @@ class DownloadController extends ChangeNotifier {
   }
 
   bool _isValidUrl(String url) {
-    final regex =
-        RegExp(r'^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.*$');
-    return regex.hasMatch(url.trim());
+    try {
+      yt.VideoId(url);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   bool _isPlaylistUrl(String url) {
-    final uri = Uri.parse(url);
-    return uri.queryParameters.containsKey('list');
+    try {
+      yt.PlaylistId(url);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   void logMessage(String message, [LogType type = LogType.info]) {
@@ -132,29 +140,21 @@ class DownloadController extends ChangeNotifier {
 
   Future<List<VideoInfoModel>?> _fetchPlaylistVideos(String playlistUrl) async {
     try {
-      final args = ['--format=info-only', playlistUrl];
-      String output = '';
-      await _service.executeDownloadProcess(playlistUrl, args,
-          onOutput: (data) {
-        output += data;
-      });
+      final ytClient = yt.YoutubeExplode();
+      final playlist = await ytClient.playlists.get(yt.PlaylistId(playlistUrl));
+      final videos = await ytClient.playlists.getVideos(playlist.id).toList();
 
-      final errorMatch =
-          RegExp(r'START_ERROR:(.+):END_ERROR').firstMatch(output);
-      if (errorMatch != null) {
-        final errorStr = errorMatch.group(1)!;
-        throw Exception(errorStr);
-      }
+      final videoInfos = videos
+          .map((video) => VideoInfoModel(
+                id: video.id.value,
+                title: video.title,
+                url: video.url,
+                duration: video.duration?.inSeconds ?? 0,
+                thumbnailUrl: video.thumbnails.highResUrl,
+              ))
+          .toList();
 
-      final jsonMatch = RegExp(r'START_INFO:(.+):END_INFO').firstMatch(output);
-      if (jsonMatch != null) {
-        final jsonStr = jsonMatch.group(1)!;
-        final jsonData = jsonDecode(jsonStr);
-        if (jsonData is List) {
-          return jsonData.map((item) => VideoInfoModel.fromJson(item)).toList();
-        }
-      }
-      return [];
+      return videoInfos;
     } catch (e) {
       logMessage('Error fetching playlist: $e', LogType.error);
       return null;
@@ -176,76 +176,75 @@ class DownloadController extends ChangeNotifier {
 
     try {
       final timeout = Duration(minutes: 5 * urlsToDownload.length);
-      final args = [
-        ...urlsToDownload,
-        '--format=${downloadType.name}',
-        if (downloadType == DownloadType.audio) ...[
-          '--audio-format=${audioFormat.name}',
-        ],
-        if (downloadType == DownloadType.video) ...[
-          '--quality=${videoQuality.quality}',
-        ],
-        if (_outputDir != null) ...[
-          '--output-dir',
-          _outputDir!,
-        ],
-        if (_maxWorkers != null) ...[
-          '--max-workers',
-          _maxWorkers.toString(),
-        ],
-      ];
+      for (final url in urlsToDownload) {
+        final args = [
+          url,
+          '--format=${downloadType.name}',
+          if (downloadType == DownloadType.audio) ...[
+            '--audio-format=${audioFormat.name}',
+          ],
+          if (downloadType == DownloadType.video) ...[
+            '--quality=${videoQuality.quality}',
+          ],
+          if (_outputDir != null) ...[
+            '--output-dir',
+            _outputDir!,
+          ],
+        ];
 
-      await _service.executeDownloadProcess(singleUrl ?? '', args,
-          timeout: timeout, onOutput: (data) async {
-        if (data.contains("START_INFO")) {
-          final start = data.indexOf("START_INFO:") + "START_INFO:".length;
-          final end = data.indexOf(":END_INFO");
-          final jsonStr = data.substring(start, end).trim();
-          final json = jsonDecode(jsonStr);
-          final videoInfo = VideoInfoModel.fromJson(json);
-          final index = _videoInfoListForDownload
-              .indexWhere((element) => element.id == videoInfo.id);
+        await _service.executeDownloadProcess(url, args, timeout: timeout,
+            onOutput: (data) async {
+          if (data.contains("START_INFO")) {
+            final start = data.indexOf("START_INFO:") + "START_INFO:".length;
+            final end = data.indexOf(":END_INFO");
+            final jsonStr = data.substring(start, end).trim();
+            final json = jsonDecode(jsonStr);
+            final videoInfo = VideoInfoModel.fromJson(json);
+            final index = _videoInfoListForDownload
+                .indexWhere((element) => element.id == videoInfo.id);
 
-          if (index != -1) {
-            final updatedVideoInfo = _videoInfoListForDownload[index].copyWith(
-              percent: videoInfo.percent,
-              status: videoInfo.status,
-              outputPath: videoInfo.outputPath,
-            );
-            _videoInfoListForDownload[index] = updatedVideoInfo;
+            if (index != -1) {
+              final updatedVideoInfo =
+                  _videoInfoListForDownload[index].copyWith(
+                percent: videoInfo.percent,
+                status: videoInfo.status,
+                outputPath: videoInfo.outputPath,
+              );
+              _videoInfoListForDownload[index] = updatedVideoInfo;
 
-            if (videoInfo.status == VideoDownloadStatus.finished) {
-              await _saveDownloadedVideoToLocal(updatedVideoInfo);
+              if (videoInfo.status == VideoDownloadStatus.finished) {
+                await _saveDownloadedVideoToLocal(updatedVideoInfo);
+              }
+            } else {
+              _videoInfoListForDownload.add(videoInfo.copyWith(
+                status: VideoDownloadStatus.downloading,
+              ));
             }
-          } else {
-            _videoInfoListForDownload.add(videoInfo.copyWith(
-              status: VideoDownloadStatus.downloading,
-            ));
           }
-        }
-        logMessage(data);
+          logMessage(data);
 
-        if (data.contains("Download completed:")) {
-          final path = data.split("Download completed: ").last.trim();
-          _downloadedFilePaths.add(path);
-          completedCount++;
+          if (data.contains("Download completed:")) {
+            final path = data.split("Download completed: ").last.trim();
+            _downloadedFilePaths.add(path);
+            completedCount++;
 
-          if (urlsToDownload.length == 1) {
-            _notificationService.showNotification(
-              id: _downloadedFilePaths.length,
-              title: 'Download Completed',
-              body: 'File saved at: $path',
-            );
-          } else if (completedCount == urlsToDownload.length) {
-            _notificationService.showNotification(
-              id: 0,
-              title: 'Playlist Download Completed',
-              body: '${urlsToDownload.length} files saved at: $_outputDir',
-            );
+            if (urlsToDownload.length == 1) {
+              _notificationService.showNotification(
+                id: _downloadedFilePaths.length,
+                title: 'Download Completed',
+                body: 'File saved at: $path',
+              );
+            } else if (completedCount == urlsToDownload.length) {
+              _notificationService.showNotification(
+                id: 0,
+                title: 'Playlist Download Completed',
+                body: '${urlsToDownload.length} files saved at: $_outputDir',
+              );
+            }
           }
-        }
-        notifyListeners();
-      });
+          notifyListeners();
+        });
+      }
     } catch (e) {
       logMessage('Error: $e', LogType.error);
     } finally {
@@ -359,6 +358,7 @@ class DownloadController extends ChangeNotifier {
   @override
   void dispose() {
     _logController.close();
+    _service.close();
     super.dispose();
   }
 }

@@ -31,19 +31,19 @@ class NotificationService {
     const LinuxInitializationSettings linuxInit = LinuxInitializationSettings(
       defaultActionName: 'Open notification',
     );
-    const WindowsInitializationSettings windowsInit =
-        WindowsInitializationSettings(
-      appName: 'YouTube Downloader',
-      guid: 'd49b0314-ee7a-4626-bf79-97cdb8a991bb',
-      appUserModelId: 'd49b0314-ee7a-4626-bf79-97cdb8a991bb',
-    );
+    // const WindowsInitializationSettings windowsInit =
+    //     WindowsInitializationSettings(
+    //   appName: 'YouTube Downloader',
+    //   guid: 'd49b0314-ee7a-4626-bf79-97cdb8a991bb',
+    //   appUserModelId: 'd49b0314-ee7a-4626-bf79-97cdb8a991bb',
+    // );
 
     const InitializationSettings initSettings = InitializationSettings(
       android: androidInit,
       iOS: darwinInit,
       macOS: darwinInit,
       linux: linuxInit,
-      windows: windowsInit,
+      // windows: windowsInit,
     );
 
     await _notificationsPlugin.initialize(initSettings);
@@ -66,15 +66,15 @@ class NotificationService {
     );
     const DarwinNotificationDetails darwinDetails = DarwinNotificationDetails();
     const LinuxNotificationDetails linuxDetails = LinuxNotificationDetails();
-    const WindowsNotificationDetails windowsDetails =
-        WindowsNotificationDetails();
+    // const WindowsNotificationDetails windowsDetails =
+    //     WindowsNotificationDetails();
 
     const NotificationDetails platformDetails = NotificationDetails(
       android: androidDetails,
       iOS: darwinDetails,
       macOS: darwinDetails,
       linux: linuxDetails,
-      windows: windowsDetails,
+      // windows: windowsDetails,
     );
 
     await _notificationsPlugin.show(id, title, body, platformDetails);

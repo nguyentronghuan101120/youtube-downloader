@@ -5,40 +5,23 @@ part 'video_info_model.g.dart';
 
 @JsonSerializable()
 class VideoInfoModel {
-  @JsonKey(name: 'id')
-  final String? id;
-
-  @JsonKey(name: 'title')
-  final String? title;
-
-  @JsonKey(name: 'duration')
-  final int? duration;
-
-  @JsonKey(name: 'thumbnail')
-  final String? thumbnailUrl;
-
-  @JsonKey(name: 'url')
+  final String id;
+  final String title;
   final String? url;
-
-  @JsonKey(name: 'status', defaultValue: VideoDownloadStatus.notDownloaded)
+  final int duration;
+  final String? thumbnailUrl;
+  final double? percent;
   final VideoDownloadStatus? status;
-
-  @JsonKey(name: 'output_path')
   final String? outputPath;
 
-  @JsonKey(
-    name: 'percent',
-  )
-  final double? percent;
-
-  const VideoInfoModel({
-    this.id,
-    this.title,
-    this.duration,
-    this.thumbnailUrl,
+  VideoInfoModel({
+    required this.id,
+    required this.title,
     this.url,
-    this.status,
+    required this.duration,
+    this.thumbnailUrl,
     this.percent,
+    this.status,
     this.outputPath,
   });
 
@@ -50,21 +33,21 @@ class VideoInfoModel {
   VideoInfoModel copyWith({
     String? id,
     String? title,
+    String? url,
     int? duration,
     String? thumbnailUrl,
-    String? url,
-    VideoDownloadStatus? status,
     double? percent,
+    VideoDownloadStatus? status,
     String? outputPath,
   }) {
     return VideoInfoModel(
       id: id ?? this.id,
       title: title ?? this.title,
+      url: url ?? this.url,
       duration: duration ?? this.duration,
       thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
-      url: url ?? this.url,
-      status: status ?? this.status,
       percent: percent ?? this.percent,
+      status: status ?? this.status,
       outputPath: outputPath ?? this.outputPath,
     );
   }

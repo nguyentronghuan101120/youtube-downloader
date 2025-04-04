@@ -42,3 +42,6 @@ c:
 g:
 	fvm flutter pub run easy_localization:generate --source-dir assets/translations -o ../gen/codegen_loader.g.dart
 	fvm flutter pub run easy_localization:generate -S assets/translations -f keys -o ../gen/locale_keys.g.dart
+
+mac-release:
+	fvm flutter build macos --release

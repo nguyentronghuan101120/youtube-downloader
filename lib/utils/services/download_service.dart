@@ -1,52 +1,14 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
-import 'package:chaquopy/chaquopy.dart';
-import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 class DownloadService {
-  late String _scriptPath;
-  Process? _process;
+  final YoutubeExplode _yt = YoutubeExplode();
+  StreamController<String> _logController = StreamController.broadcast();
+  Stream<String> get logs => _logController.stream;
 
   Future<void> initializeScript() async {
-    final byteData = await rootBundle.load('assets/main.py');
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/main.py');
-    if (!await file.exists() || await file.length() != byteData.lengthInBytes) {
-      await file.writeAsBytes(byteData.buffer.asUint8List(), flush: true);
-    }
-    _scriptPath = file.path;
-    if (Platform.isLinux || Platform.isMacOS) {
-      await Process.run('chmod', ['+x', _scriptPath]);
-    }
-  }
-
-  Future<String> _getPythonInterpreter() async {
-    for (var pythonCmd in ['python', 'python3']) {
-      try {
-        final result = await Process.run(pythonCmd, ['--version']);
-        if (result.exitCode == 0) {
-          return pythonCmd;
-        }
-      } catch (e) {
-        continue;
-      }
-    }
-
-    // Python is missing, attempt installation (Mac/Linux only)
-    if (Platform.isMacOS || Platform.isLinux) {
-      try {
-        await Process.run('brew', ['install', 'python3']);
-        return 'python3';
-      } catch (e) {
-        throw Exception(
-            'Failed to install Python. Please install it manually.');
-      }
-    }
-
-    throw Exception(
-        'Python is not installed and cannot be automatically set up.');
+    // No initialization needed for youtube_explode_dart
   }
 
   Future<void> executeDownloadProcess(
@@ -56,56 +18,109 @@ class DownloadService {
     int retries = 3,
     Duration timeout = const Duration(minutes: 5),
   }) async {
-    for (int attempt = 1; attempt <= retries; attempt++) {
-      try {
-        if (Platform.isAndroid) {
-          final result = await Chaquopy.executeCode('''
-import sys
-from io import StringIO
-from script import main
+    try {
+      final videoId = VideoId(url);
+      final video = await _yt.videos.get(videoId);
 
-sys.stdout = StringIO()
-sys.argv = ['script.py', '$url', *${jsonEncode(args)}]
-main()
-sys.stdout.seek(0)
-print(sys.stdout.read())
-''');
-          final output = result['stdout'] as String;
-          if (output.isNotEmpty) {
-            onOutput(output);
-          }
-          if (result['stderr'] != null && result['stderr'].isNotEmpty) {
-            onOutput('START_ERROR: ${result['stderr']} :END_ERROR');
-          }
-        } else if (Platform.isMacOS || Platform.isLinux) {
-          final pythonCmd = await _getPythonInterpreter();
-          _process = await Process.start(pythonCmd, [_scriptPath, ...args]);
-          _process!.stdout.transform(utf8.decoder).listen(onOutput);
-          _process!.stderr.transform(utf8.decoder).listen((data) {
-            onOutput('START_ERROR: $data :END_ERROR');
-          });
-          await _process!.exitCode.timeout(timeout, onTimeout: () {
-            _process!.kill();
-            throw TimeoutException(
-                "Download took too long on attempt $attempt.");
-          });
-        } else {
-          throw UnsupportedError(
-              'Platform not supported: ${Platform.operatingSystem}');
-        }
-        break;
-      } catch (e) {
+      // Parse arguments
+      final formatType = args.contains('--format=video') ? 'video' : 'audio';
+      final audioFormat = args
+          .firstWhere(
+            (arg) => arg.startsWith('--audio-format='),
+            orElse: () => '--audio-format=mp3',
+          )
+          .split('=')[1];
+      final videoQuality = args
+          .firstWhere(
+            (arg) => arg.startsWith('--quality='),
+            orElse: () => '--quality=720p',
+          )
+          .split('=')[1];
+      final outputDir = args
+          .firstWhere(
+            (arg) => arg.startsWith('--output-dir'),
+            orElse: () => '--output-dir=${Directory.current.path}',
+          )
+          .split('=')[1];
+
+      // Get stream manifest
+      final manifest = await _yt.videos.streams.getManifest(videoId);
+
+      // Select appropriate stream based on format type
+      StreamInfo streamInfo;
+      if (formatType == 'video') {
+        final videoStream = manifest.videoOnly
+            .where((e) => e.videoQuality.name == videoQuality)
+            .first;
+        final audioStream = manifest.audioOnly.withHighestBitrate();
+        streamInfo = videoStream;
+
+        // Download video and audio separately
+        final videoFile =
+            File('$outputDir/${video.title}.${videoStream.container.name}');
+        final audioFile =
+            File('$outputDir/${video.title}.${audioStream.container.name}');
+
+        await _downloadStream(videoStream, videoFile, onOutput);
+        await _downloadStream(audioStream, audioFile, onOutput);
+
+        // TODO: Use FFmpeg to merge video and audio
         onOutput(
-            '[ERROR] Failed to execute Python script on attempt $attempt: $e');
-        if (attempt == retries) {
-          rethrow;
-        }
-        await Future.delayed(Duration(seconds: 2 * attempt));
+            'START_INFO:{"id":"${video.id}","status":"finished","output_path":"${videoFile.path}"}:END_INFO');
+      } else {
+        streamInfo = manifest.audioOnly
+            .where((e) => e.container.name == audioFormat)
+            .first;
+
+        final file =
+            File('$outputDir/${video.title}.${streamInfo.container.name}');
+        await _downloadStream(streamInfo, file, onOutput);
+        onOutput(
+            'START_INFO:{"id":"${video.id}","status":"finished","output_path":"${file.path}"}:END_INFO');
       }
+    } catch (e) {
+      onOutput('START_ERROR:$e:END_ERROR');
+      rethrow;
     }
   }
 
+  Future<void> _downloadStream(
+      StreamInfo streamInfo, File file, void Function(String) onOutput) async {
+    final stream = await _yt.videos.streams.get(streamInfo);
+    final fileStream = file.openWrite();
+
+    var downloadedBytes = 0;
+    final totalBytes = streamInfo.size.totalBytes;
+
+    final completer = Completer<void>();
+    final subscription = stream.listen(
+      (data) {
+        downloadedBytes += data.length;
+        final percent = (downloadedBytes / totalBytes * 100).toStringAsFixed(1);
+        onOutput(
+            'START_INFO:{"id":"${streamInfo.videoId}","status":"downloading","percent":$percent}:END_INFO');
+        fileStream.add(data);
+      },
+      onDone: () async {
+        await fileStream.flush();
+        await fileStream.close();
+        completer.complete();
+      },
+      onError: (error) {
+        onOutput('START_ERROR:$error:END_ERROR');
+        completer.completeError(error);
+      },
+    );
+
+    await completer.future;
+    await subscription.cancel();
+  }
+
   void killProcess() {
-    _process?.kill();
+    // No process to kill with youtube_explode_dart
+  }
+
+  Future<void> close() async {
+    await _logController.close();
   }
 }
